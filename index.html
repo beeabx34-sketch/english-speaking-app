@@ -172,6 +172,8 @@
   }
   .seg button.on { background: var(--accent); color: #fff; }
   .row-2 { display: flex; gap: 8px; align-items: center; }
+  .lang-seg { width: 250px; }
+  .lang-seg button { font-size: 13px; padding: 8px 0; }
   .ghost-btn {
     padding: 11px 14px; font-size: 14px; font-weight: 600; border: 1px solid var(--line);
     border-radius: 10px; background: var(--card); color: var(--accent); cursor: pointer; flex: none;
@@ -227,6 +229,10 @@
       <div class="feedback" id="feedback"></div>
 
       <div class="bottom-area">
+        <div class="seg lang-seg" id="lang-seg">
+          <button data-lang="en" class="on">英語で話す</button>
+          <button data-lang="ja">日本語でヘルプ</button>
+        </div>
         <label class="handsfree-row">
           ハンズフリー
           <span class="switch">
@@ -308,6 +314,9 @@ let settings = store.getSettings();
 /* idle | listening | processing | speaking */
 let state = "idle";
 let handsFree = false;
+/* 入力モード: "en"=英語で話して添削 / "ja"=日本語で言いたいことを話して英訳 */
+let lang = "en";
+const LANG_CODE = { en: "en-US", ja: "ja-JP" };
 
 const STATUS = {
   idle:       { icon: "🎤", label: "タップして話す",   sub: "英語で今の行動や気持ちを言ってみましょう", pulse: false },
@@ -324,8 +333,10 @@ function setState(next) {
   $("status-icon").classList.toggle("pulse", s.pulse);
   $("status-label").textContent = s.label;
   $("status-sub").textContent =
+    next === "listening" && lang === "ja" ? (handsFree ? "日本語でどうぞ。2秒黙ると自動で英訳します" : "言いたいことを日本語でどうぞ") :
     next === "listening" && handsFree ? "2秒黙ると自動で確定します（“stop”で終了）" :
-    next === "idle" && handsFree ? "ハンズフリー待機中" : s.sub;
+    next === "idle" && handsFree ? "ハンズフリー待機中" :
+    next === "idle" && lang === "ja" ? "言いたいことを日本語で話すと英語表現を教えます" : s.sub;
   const mic = $("mic-btn");
   mic.classList.toggle("listening", next === "listening");
   mic.disabled = (next === "processing");
@@ -389,7 +400,7 @@ function clearBuffers() {
 
 function makeRecognition() {
   const r = new SR();
-  r.lang = "en-US";
+  r.lang = LANG_CODE[lang];
   r.continuous = true;
   r.interimResults = true;
 
@@ -473,8 +484,8 @@ function finalizeUtterance() {
   }
 
   /* 音声コマンドでハンズフリー終了 */
-  const cmd = text.toLowerCase().replace(/[.,!?\s]+$/g, "").trim();
-  if (handsFree && (cmd === "stop" || cmd === "stop it" || cmd === "finish")) {
+  const cmd = text.toLowerCase().replace(/[.,!?。、！？\s]+$/g, "").trim();
+  if (handsFree && (cmd === "stop" || cmd === "stop it" || cmd === "finish" || cmd === "ストップ" || cmd === "終了")) {
     exitHandsFree(true);
     return;
   }
@@ -489,10 +500,29 @@ function finalizeUtterance() {
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-6";
 
-function systemPrompt() {
+function systemPrompt(mode) {
   const detail = settings.detail === "detailed"
     ? "explanationは日本語で4〜6文。誤りの理由・ニュアンスの違い・関連表現まで丁寧に説明してください。"
     : "explanationは日本語で2〜3文。簡潔に要点だけ説明してください。";
+
+  if (mode === "ja") {
+    return `あなたは日本人学習者向けの英会話コーチです。学習者は、英語でどう言えばいいか分からない内容を日本語で話します（音声入力の結果が与えられます）。それを日常会話で自然な英語表現にしてください。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
+
+必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
+
+{
+  "correct": true,
+  "corrected": "",
+  "natural": ["最も自然で口語的な英語表現。1〜2案の配列。学習者がそのまま声に出して使える完全な文にすること"],
+  "explanation": "日本語での解説。キーとなる単語・フレーズの意味と使い方。${detail}",
+  "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（余裕があれば。なければ空文字）"
+}
+
+注意:
+- 入力は音声認識の結果なので、誤変換と思われる場合は意図を推測して英訳すること。
+- 直訳ではなく、ネイティブが実際の会話で使う言い方にすること。`;
+  }
+
   return `あなたは日本人学習者向けの英会話コーチです。学習者が音声入力で話した英文が与えられます。励ましすぎず、率直で的確なフィードバックをしてください。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
 
 必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
@@ -510,7 +540,7 @@ function systemPrompt() {
 - 明らかな音声認識の誤変換と思われる場合は、意図を推測して添削すること。`;
 }
 
-async function callClaude(text) {
+async function callClaude(text, mode) {
   const apiKey = store.getKey();
   const res = await fetch(API_URL, {
     method: "POST",
@@ -523,7 +553,7 @@ async function callClaude(text) {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 1024,
-      system: systemPrompt(),
+      system: systemPrompt(mode),
       messages: [{ role: "user", content: text }],
     }),
   });
@@ -561,10 +591,11 @@ async function submit(text) {
     return;
   }
 
+  const mode = lang;
   setState("processing");
   let fb;
   try {
-    fb = await callClaude(text);
+    fb = await callClaude(text, mode);
   } catch (err) {
     if (err.status === 401 || err.status === 403) {
       showError("APIキーが正しくないようです。「設定」タブでキーを確認してください。", true);
@@ -581,8 +612,8 @@ async function submit(text) {
     return;
   }
 
-  renderFeedback(text, fb);
-  saveToHistory(text, fb);
+  renderFeedback(text, fb, mode);
+  saveToHistory(text, fb, mode);
   speakFeedback(fb);
 }
 
@@ -612,7 +643,7 @@ function enRow(text) {
   return row;
 }
 
-function renderFeedback(spoken, fb) {
+function renderFeedback(spoken, fb, mode) {
   const wrap = $("feedback");
   wrap.innerHTML = "";
 
@@ -620,11 +651,16 @@ function renderFeedback(spoken, fb) {
   card.className = "fb-card";
 
   const verdict = document.createElement("div");
-  verdict.className = "fb-verdict " + (fb.correct ? "ok" : "ng");
-  verdict.textContent = fb.correct ? "✓ 通じます" : "✗ 修正ポイントがあります";
+  if (mode === "ja") {
+    verdict.className = "fb-verdict ok";
+    verdict.textContent = "💡 英語ではこう言います";
+  } else {
+    verdict.className = "fb-verdict " + (fb.correct ? "ok" : "ng");
+    verdict.textContent = fb.correct ? "✓ 通じます" : "✗ 修正ポイントがあります";
+  }
   card.append(verdict);
 
-  if (!fb.correct && fb.corrected) {
+  if (mode !== "ja" && !fb.correct && fb.corrected) {
     const l = document.createElement("div");
     l.className = "fb-label"; l.textContent = "修正";
     card.append(l, enRow(fb.corrected));
@@ -632,7 +668,8 @@ function renderFeedback(spoken, fb) {
 
   if (fb.natural.length) {
     const l = document.createElement("div");
-    l.className = "fb-label"; l.textContent = "ネイティブならこう言う";
+    l.className = "fb-label";
+    l.textContent = mode === "ja" ? "英語表現" : "ネイティブならこう言う";
     card.append(l);
     fb.natural.forEach(n => card.append(enRow(n)));
   }
@@ -761,6 +798,26 @@ $("handsfree-toggle").addEventListener("change", (e) => {
 });
 
 /* =====================================================================
+ * 入力モード切り替え（英語で話す / 日本語でヘルプ）
+ * ===================================================================== */
+[...$("lang-seg").children].forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.lang === lang) return;
+    lang = btn.dataset.lang;
+    [...$("lang-seg").children].forEach(b => b.classList.toggle("on", b === btn));
+    if (rec) rec.lang = LANG_CODE[lang];
+    if (state === "listening") {
+      /* 聞き取り中なら新しい言語で聞き直す */
+      stopRecognition();
+      clearBuffers();
+      updateTranscript();
+      startRecognition();
+    }
+    setState(state); /* 案内文を更新 */
+  });
+});
+
+/* =====================================================================
  * マイクボタン（手動モード）
  * ===================================================================== */
 $("mic-btn").addEventListener("click", () => {
@@ -779,11 +836,12 @@ $("mic-btn").addEventListener("click", () => {
 /* =====================================================================
  * 履歴
  * ===================================================================== */
-function saveToHistory(spoken, fb) {
+function saveToHistory(spoken, fb, mode) {
   const h = store.getHistory();
   h.unshift({
     id: Date.now() + "_" + Math.random().toString(36).slice(2, 7),
     ts: Date.now(),
+    mode: mode || "en",
     spoken,
     correct: !!fb.correct,
     corrected: fb.corrected || "",
@@ -816,7 +874,7 @@ function renderHistory() {
     const head = document.createElement("div");
     head.className = "hist-date";
     const dateSpan = document.createElement("span");
-    dateSpan.textContent = fmtDate(item.ts) + (item.correct ? "　✓" : "　✗");
+    dateSpan.textContent = fmtDate(item.ts) + (item.mode === "ja" ? "　💡日本語→英語" : (item.correct ? "　✓" : "　✗"));
     const del = document.createElement("button");
     del.className = "hist-del";
     del.textContent = "削除";
@@ -832,7 +890,7 @@ function renderHistory() {
     spoken.textContent = item.spoken;
     el.append(spoken);
 
-    if (!item.correct && item.corrected) {
+    if (item.mode !== "ja" && !item.correct && item.corrected) {
       const l = document.createElement("div");
       l.className = "fb-label"; l.textContent = "修正";
       el.append(l, enRow(item.corrected));
@@ -840,7 +898,8 @@ function renderHistory() {
     (item.natural || []).forEach((n, i) => {
       if (i === 0) {
         const l = document.createElement("div");
-        l.className = "fb-label"; l.textContent = "自然な表現";
+        l.className = "fb-label";
+        l.textContent = item.mode === "ja" ? "英語表現" : "自然な表現";
         el.append(l);
       }
       el.append(enRow(n));
