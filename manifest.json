@@ -1,0 +1,16 @@
+{
+  "name": "瞬間英作文トレーナー",
+  "short_name": "瞬間英作文",
+  "description": "話した英語をAIが即添削する瞬間英作文トレーナー",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#faf8f4",
+  "theme_color": "#faf8f4",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,918 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>瞬間英作文</title>
+<meta name="description" content="話した英語をAIが即添削する瞬間英作文トレーナー">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="瞬間英作文">
+<meta name="theme-color" content="#faf8f4">
+<style>
+  :root {
+    --bg: #faf8f4;
+    --bg-listening: #e8f2e6;
+    --bg-processing: #f7eedd;
+    --bg-speaking: #e3edf5;
+    --ink: #1e1e1c;
+    --ink-soft: #6b6a64;
+    --line: #e3ded4;
+    --accent: #2f6b5f;
+    --accent-soft: #dce9e5;
+    --danger: #a4472f;
+    --card: #ffffff;
+    --radius: 14px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    --bg-current: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;
+    background: var(--bg-current);
+    color: var(--ink);
+    transition: background-color .4s ease;
+    overscroll-behavior: none;
+  }
+  body[data-state="listening"]  { --bg-current: var(--bg-listening); }
+  body[data-state="processing"] { --bg-current: var(--bg-processing); }
+  body[data-state="speaking"]   { --bg-current: var(--bg-speaking); }
+
+  .app { display: flex; flex-direction: column; height: 100dvh; }
+
+  header {
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 0;
+  }
+  .tabs {
+    display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 0;
+  }
+  .tab {
+    flex: 1; text-align: center; padding: 10px 0 12px; font-size: 15px; font-weight: 600;
+    color: var(--ink-soft); background: none; border: none; border-bottom: 2.5px solid transparent;
+    cursor: pointer;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ===== practice ===== */
+  #panel-practice { display: none; flex-direction: column; min-height: 100%; }
+  #panel-practice.active { display: flex; }
+
+  .status-strip {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 6px 0 14px; min-height: 56px;
+  }
+  .status-icon { font-size: 30px; line-height: 1; }
+  .status-icon.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: .65; } }
+  .status-label { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .status-sub { font-size: 12px; color: var(--ink-soft); }
+
+  .transcript {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; min-height: 76px; font-size: 19px; line-height: 1.5;
+    font-family: Georgia, "Times New Roman", serif;
+  }
+  .transcript .interim { color: var(--ink-soft); }
+  .transcript .placeholder { color: #b9b4a8; font-size: 15px; font-family: -apple-system, sans-serif; }
+
+  .feedback { margin-top: 14px; }
+  .fb-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .fb-verdict { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .fb-verdict.ok { color: var(--accent); }
+  .fb-verdict.ng { color: var(--danger); }
+  .fb-label { font-size: 12px; font-weight: 700; color: var(--ink-soft); letter-spacing: .04em; margin-bottom: 4px; }
+  .fb-en {
+    font-family: Georgia, "Times New Roman", serif; font-size: 18px; line-height: 1.5;
+    display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px;
+  }
+  .fb-en:last-child { margin-bottom: 0; }
+  .fb-en .txt { flex: 1; padding-top: 2px; }
+  .fb-ja { font-size: 14px; line-height: 1.7; color: var(--ink); }
+  .play-btn {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--line); background: var(--accent-soft); color: var(--accent);
+    font-size: 14px; cursor: pointer;
+  }
+  .play-btn:active { background: var(--accent); color: #fff; }
+
+  .error-banner {
+    display: none; background: #f7e5df; border: 1px solid #e0b7a9; color: var(--danger);
+    border-radius: var(--radius); padding: 12px 14px; font-size: 14px; line-height: 1.6; margin-bottom: 12px;
+  }
+  .error-banner.show { display: block; }
+
+  .bottom-area {
+    position: sticky; bottom: 0; margin-top: auto;
+    padding: 10px 0 calc(var(--safe-bottom) + 14px);
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    background: var(--bg-current);
+    transition: background-color .4s ease;
+    box-shadow: 0 -18px 14px -14px var(--bg-current);
+  }
+  .handsfree-row { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+  .switch { position: relative; width: 50px; height: 30px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .knob {
+    position: absolute; inset: 0; background: #d6d1c5; border-radius: 15px; transition: background .2s;
+  }
+  .switch .knob::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px;
+    background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  }
+  .switch input:checked + .knob { background: var(--accent); }
+  .switch input:checked + .knob::after { transform: translateX(20px); }
+
+  #mic-btn {
+    width: 92px; height: 92px; border-radius: 50%; border: none;
+    background: var(--accent); color: #fff; font-size: 40px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(47,107,95,.35);
+    transition: transform .1s, background .25s;
+  }
+  #mic-btn:active { transform: scale(.94); }
+  #mic-btn.listening { background: var(--danger); box-shadow: 0 4px 14px rgba(164,71,47,.4); animation: micglow 1.4s ease-in-out infinite; }
+  #mic-btn:disabled { background: #c8c3b7; box-shadow: none; }
+  @keyframes micglow { 0%,100% { box-shadow: 0 4px 14px rgba(164,71,47,.4); } 50% { box-shadow: 0 4px 26px rgba(164,71,47,.75); } }
+  .mic-hint { font-size: 13px; color: var(--ink-soft); }
+
+  /* ===== history ===== */
+  .hist-empty { color: var(--ink-soft); font-size: 14px; text-align: center; padding: 40px 0; }
+  .hist-item {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .hist-date { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .hist-del { background: none; border: none; color: var(--danger); font-size: 13px; cursor: pointer; padding: 4px 6px; }
+  .hist-spoken { font-family: Georgia, serif; font-size: 16px; margin-bottom: 8px; color: var(--ink-soft); }
+  .hist-spoken::before { content: "🗣 "; font-size: 13px; }
+
+  /* ===== settings ===== */
+  .set-group { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .set-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .set-note { font-size: 12px; color: var(--ink-soft); line-height: 1.6; margin-top: 8px; }
+  .set-input {
+    width: 100%; padding: 11px 12px; font-size: 15px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--bg); color: var(--ink);
+  }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    flex: 1; padding: 10px 0; font-size: 14px; font-weight: 600; border: none;
+    background: var(--card); color: var(--ink-soft); cursor: pointer;
+  }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .row-2 { display: flex; gap: 8px; align-items: center; }
+  .ghost-btn {
+    padding: 11px 14px; font-size: 14px; font-weight: 600; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); color: var(--accent); cursor: pointer; flex: none;
+  }
+  .save-flash { font-size: 12px; color: var(--accent); margin-top: 6px; visibility: hidden; }
+  .save-flash.show { visibility: visible; }
+
+  /* unsupported overlay */
+  #unsupported {
+    display: none; position: fixed; inset: 0; z-index: 100; background: var(--bg);
+    padding: 40px 28px; text-align: center;
+  }
+  #unsupported.show { display: block; }
+  #unsupported h2 { font-size: 20px; margin: 24px 0 12px; }
+  #unsupported p { font-size: 15px; line-height: 1.8; color: var(--ink-soft); }
+</style>
+</head>
+<body data-state="idle">
+
+<div id="unsupported">
+  <div style="font-size:56px; margin-top:60px;">🎙️</div>
+  <h2>Safariで開いてください</h2>
+  <p>このブラウザでは音声認識（Web Speech API）が利用できません。<br>
+  iPhoneの<strong>Safari</strong>でこのページを開き直してください。</p>
+</div>
+
+<div class="app">
+  <header>
+    <nav class="tabs">
+      <button class="tab active" data-tab="practice">練習</button>
+      <button class="tab" data-tab="history">履歴</button>
+      <button class="tab" data-tab="settings">設定</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== 練習 ===== -->
+    <section id="panel-practice" class="panel active">
+      <div class="status-strip">
+        <span class="status-icon" id="status-icon">🎤</span>
+        <span>
+          <span class="status-label" id="status-label">タップして話す</span><br>
+          <span class="status-sub" id="status-sub">英語で今の行動や気持ちを言ってみましょう</span>
+        </span>
+      </div>
+
+      <div class="error-banner" id="error-banner"></div>
+
+      <div class="transcript" id="transcript">
+        <span class="placeholder">ここに認識された英語が表示されます</span>
+      </div>
+
+      <div class="feedback" id="feedback"></div>
+
+      <div class="bottom-area">
+        <label class="handsfree-row">
+          ハンズフリー
+          <span class="switch">
+            <input type="checkbox" id="handsfree-toggle">
+            <span class="knob"></span>
+          </span>
+        </label>
+        <button id="mic-btn" aria-label="マイク">🎤</button>
+        <span class="mic-hint" id="mic-hint">タップで録音開始 → もう一度タップで確定</span>
+      </div>
+    </section>
+
+    <!-- ===== 履歴 ===== -->
+    <section id="panel-history" class="panel">
+      <div id="history-list"></div>
+    </section>
+
+    <!-- ===== 設定 ===== -->
+    <section id="panel-settings" class="panel">
+      <div class="set-group">
+        <div class="set-title">Anthropic APIキー</div>
+        <div class="row-2">
+          <input class="set-input" type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+          <button class="ghost-btn" id="key-toggle">表示</button>
+        </div>
+        <div class="set-note">🔒 キーはこの端末（ブラウザ内）にのみ保存されます。外部に送信されるのは Anthropic API への添削リクエストのみです。</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">読み上げ速度</div>
+        <div class="seg" id="rate-seg">
+          <button data-rate="0.7">0.7x</button>
+          <button data-rate="1.0" class="on">1.0x</button>
+          <button data-rate="1.2">1.2x</button>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">解説の詳しさ</div>
+        <div class="seg" id="detail-seg">
+          <button data-detail="brief" class="on">簡潔</button>
+          <button data-detail="detailed">詳しく</button>
+        </div>
+      </div>
+
+      <div class="save-flash" id="save-flash">✓ 保存しました</div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+ * 瞬間英作文トレーナー
+ * 話す → Claude APIで添削 → 読み上げ → localStorageに記録
+ * ===================================================================== */
+
+const $ = (id) => document.getElementById(id);
+
+/* ---------- storage ---------- */
+const KEYS = { key: "ess_api_key", settings: "ess_settings", history: "ess_history" };
+const store = {
+  getKey: () => localStorage.getItem(KEYS.key) || "",
+  setKey: (v) => localStorage.setItem(KEYS.key, v),
+  getSettings() {
+    try { return Object.assign({ rate: 1.0, detail: "brief" }, JSON.parse(localStorage.getItem(KEYS.settings) || "{}")); }
+    catch { return { rate: 1.0, detail: "brief" }; }
+  },
+  setSettings(s) { localStorage.setItem(KEYS.settings, JSON.stringify(s)); },
+  getHistory() {
+    try { return JSON.parse(localStorage.getItem(KEYS.history) || "[]"); }
+    catch { return []; }
+  },
+  setHistory(h) { localStorage.setItem(KEYS.history, JSON.stringify(h)); },
+};
+let settings = store.getSettings();
+
+/* ---------- app state ---------- */
+/* idle | listening | processing | speaking */
+let state = "idle";
+let handsFree = false;
+
+const STATUS = {
+  idle:       { icon: "🎤", label: "タップして話す",   sub: "英語で今の行動や気持ちを言ってみましょう", pulse: false },
+  listening:  { icon: "🟢", label: "聞き取り中…",     sub: "話し終えたらタップで確定", pulse: true },
+  processing: { icon: "⏳", label: "添削中…",         sub: "Claudeが英文をチェックしています", pulse: true },
+  speaking:   { icon: "🔊", label: "読み上げ中…",     sub: "お手本を聞きましょう", pulse: true },
+};
+
+function setState(next) {
+  state = next;
+  document.body.dataset.state = next;
+  const s = STATUS[next];
+  $("status-icon").textContent = s.icon;
+  $("status-icon").classList.toggle("pulse", s.pulse);
+  $("status-label").textContent = s.label;
+  $("status-sub").textContent =
+    next === "listening" && handsFree ? "2秒黙ると自動で確定します（“stop”で終了）" :
+    next === "idle" && handsFree ? "ハンズフリー待機中" : s.sub;
+  const mic = $("mic-btn");
+  mic.classList.toggle("listening", next === "listening");
+  mic.disabled = (next === "processing");
+  mic.textContent = next === "listening" ? "⏹" : next === "speaking" ? "🔇" : "🎤";
+  $("mic-hint").textContent =
+    next === "listening" ? (handsFree ? "話し終えると自動で添削されます" : "もう一度タップで確定") :
+    next === "speaking" ? "タップで読み上げを停止" :
+    next === "processing" ? "しばらくお待ちください…" :
+    handsFree ? "ハンズフリー中：自動で聞き取りが始まります" : "タップで録音開始 → もう一度タップで確定";
+}
+
+/* ---------- error banner ---------- */
+let errorTimer = null;
+function showError(msg, sticky) {
+  const b = $("error-banner");
+  b.textContent = msg;
+  b.classList.add("show");
+  clearTimeout(errorTimer);
+  if (!sticky) errorTimer = setTimeout(hideError, 8000);
+}
+function hideError() { $("error-banner").classList.remove("show"); }
+
+/* =====================================================================
+ * 音声認識
+ * ===================================================================== */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) $("unsupported").classList.add("show");
+
+let rec = null;
+let recRunning = false;
+let baseFinal = "";   // 過去の認識セッション分（onendで折りたたむ）
+let sessFinal = "";   // 現セッションの確定分
+let interim = "";     // 現セッションの暫定分
+let silenceTimer = null;
+const SILENCE_MS = 2000;
+
+function currentText() {
+  return (baseFinal + " " + sessFinal + " " + interim).replace(/\s+/g, " ").trim();
+}
+
+function updateTranscript() {
+  const el = $("transcript");
+  const fixed = (baseFinal + " " + sessFinal).replace(/\s+/g, " ").trim();
+  if (!fixed && !interim.trim()) {
+    el.innerHTML = '<span class="placeholder">ここに認識された英語が表示されます</span>';
+    return;
+  }
+  el.innerHTML = "";
+  el.append(document.createTextNode(fixed ? fixed + " " : ""));
+  const i = document.createElement("span");
+  i.className = "interim";
+  i.textContent = interim;
+  el.append(i);
+}
+
+function clearBuffers() {
+  baseFinal = sessFinal = interim = "";
+  clearTimeout(silenceTimer);
+  silenceTimer = null;
+}
+
+function makeRecognition() {
+  const r = new SR();
+  r.lang = "en-US";
+  r.continuous = true;
+  r.interimResults = true;
+
+  r.onresult = (e) => {
+    if (state !== "listening") return;
+    sessFinal = ""; interim = "";
+    for (let i = 0; i < e.results.length; i++) {
+      const res = e.results[i];
+      if (res.isFinal) sessFinal += res[0].transcript;
+      else interim += res[0].transcript;
+    }
+    updateTranscript();
+    if (handsFree && currentText()) resetSilenceTimer();
+  };
+
+  r.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      showError("マイクの使用が許可されていません。設定アプリ → Safari → マイク で許可するか、ページ再読み込み時に「許可」を選んでください。", true);
+      exitHandsFree(false);
+      setState("idle");
+    }
+    /* "no-speech" / "aborted" は onend の自動再開に任せる */
+  };
+
+  /* iOSのSpeech Recognitionは勝手に止まることがある → listening中なら自動再起動 */
+  r.onend = () => {
+    recRunning = false;
+    baseFinal = (baseFinal + " " + sessFinal + " " + interim).replace(/\s+/g, " ").trim();
+    sessFinal = ""; interim = "";
+    if (state === "listening") {
+      setTimeout(() => { if (state === "listening") startRecognition(); }, 250);
+    }
+  };
+  return r;
+}
+
+function startRecognition() {
+  if (!SR || recRunning) return;
+  if (!rec) rec = makeRecognition();
+  try {
+    rec.start();
+    recRunning = true;
+  } catch (_) {
+    /* すでに開始済み等。次のonendで再起動される */
+  }
+}
+
+function stopRecognition() {
+  clearTimeout(silenceTimer);
+  silenceTimer = null;
+  if (rec && recRunning) {
+    try { rec.abort(); } catch (_) {}
+  }
+  recRunning = false;
+}
+
+function resetSilenceTimer() {
+  clearTimeout(silenceTimer);
+  silenceTimer = setTimeout(() => {
+    if (state === "listening" && handsFree) finalizeUtterance();
+  }, SILENCE_MS);
+}
+
+function beginListening() {
+  hideError();
+  clearBuffers();
+  updateTranscript();
+  $("feedback").innerHTML = "";
+  setState("listening");
+  startRecognition();
+}
+
+function finalizeUtterance() {
+  const text = currentText();
+  stopRecognition();
+  clearBuffers();
+
+  if (!text) {
+    if (handsFree) { beginListening(); } else { setState("idle"); }
+    return;
+  }
+
+  /* 音声コマンドでハンズフリー終了 */
+  const cmd = text.toLowerCase().replace(/[.,!?\s]+$/g, "").trim();
+  if (handsFree && (cmd === "stop" || cmd === "stop it" || cmd === "finish")) {
+    exitHandsFree(true);
+    return;
+  }
+
+  $("transcript").textContent = text;
+  submit(text);
+}
+
+/* =====================================================================
+ * Claude API 添削
+ * ===================================================================== */
+const API_URL = "https://api.anthropic.com/v1/messages";
+const MODEL = "claude-sonnet-4-6";
+
+function systemPrompt() {
+  const detail = settings.detail === "detailed"
+    ? "explanationは日本語で4〜6文。誤りの理由・ニュアンスの違い・関連表現まで丁寧に説明してください。"
+    : "explanationは日本語で2〜3文。簡潔に要点だけ説明してください。";
+  return `あなたは日本人学習者向けの英会話コーチです。学習者が音声入力で話した英文が与えられます。励ましすぎず、率直で的確なフィードバックをしてください。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
+
+必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
+
+{
+  "correct": true または false（文法的に通じるかどうか）,
+  "corrected": "誤りがあれば修正した英文。誤りがなければ元の文をそのまま",
+  "natural": ["ネイティブならこう言う、というより自然な表現。1〜2案の配列"],
+  "explanation": "日本語での解説。なぜその表現が良いのか。${detail}",
+  "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（余裕があれば。なければ空文字）"
+}
+
+注意:
+- 入力は音声認識の結果なので、大文字小文字や句読点の欠落は誤りとして扱わないこと。
+- 明らかな音声認識の誤変換と思われる場合は、意図を推測して添削すること。`;
+}
+
+async function callClaude(text) {
+  const apiKey = store.getKey();
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: 1024,
+      system: systemPrompt(),
+      messages: [{ role: "user", content: text }],
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).error?.message || ""; } catch (_) {}
+    const err = new Error(detail || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = await res.json();
+  let raw = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  /* コードフェンスや前置きが混ざっても最初の { 〜 最後の } を拾う */
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("応答の形式が想定外でした");
+  const fb = JSON.parse(raw.slice(start, end + 1));
+  fb.natural = Array.isArray(fb.natural) ? fb.natural : (fb.natural ? [String(fb.natural)] : []);
+  return fb;
+}
+
+async function submit(text) {
+  if (!store.getKey()) {
+    showError("APIキーが設定されていません。「設定」タブで Anthropic APIキーを入力してください。", true);
+    setState("idle");
+    if (handsFree) exitHandsFree(false);
+    switchTab("settings");
+    return;
+  }
+  if (!navigator.onLine) {
+    showError("オフラインのため添削できません。履歴の閲覧は可能です。通信環境のある場所でお試しください。");
+    afterFeedbackDone();
+    return;
+  }
+
+  setState("processing");
+  let fb;
+  try {
+    fb = await callClaude(text);
+  } catch (err) {
+    if (err.status === 401 || err.status === 403) {
+      showError("APIキーが正しくないようです。「設定」タブでキーを確認してください。", true);
+    } else if (err.status === 429) {
+      showError("リクエストが多すぎます。少し待ってからもう一度お試しください。");
+    } else if (err.status >= 500) {
+      showError("Anthropic側で一時的な問題が起きています。しばらくして再試行してください。");
+    } else if (err instanceof TypeError) {
+      showError("通信エラーが発生しました。ネットワーク接続を確認してください。");
+    } else {
+      showError("添削に失敗しました：" + err.message);
+    }
+    afterFeedbackDone();
+    return;
+  }
+
+  renderFeedback(text, fb);
+  saveToHistory(text, fb);
+  speakFeedback(fb);
+}
+
+/* 処理後の遷移（エラー時・読み上げ完了時 共通） */
+function afterFeedbackDone() {
+  if (handsFree) {
+    beginListening();
+  } else {
+    setState("idle");
+  }
+}
+
+/* =====================================================================
+ * フィードバック表示
+ * ===================================================================== */
+function enRow(text) {
+  const row = document.createElement("div");
+  row.className = "fb-en";
+  const btn = document.createElement("button");
+  btn.className = "play-btn";
+  btn.textContent = "▶";
+  btn.onclick = () => speak([text]);
+  const span = document.createElement("span");
+  span.className = "txt";
+  span.textContent = text;
+  row.append(btn, span);
+  return row;
+}
+
+function renderFeedback(spoken, fb) {
+  const wrap = $("feedback");
+  wrap.innerHTML = "";
+
+  const card = document.createElement("div");
+  card.className = "fb-card";
+
+  const verdict = document.createElement("div");
+  verdict.className = "fb-verdict " + (fb.correct ? "ok" : "ng");
+  verdict.textContent = fb.correct ? "✓ 通じます" : "✗ 修正ポイントがあります";
+  card.append(verdict);
+
+  if (!fb.correct && fb.corrected) {
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "修正";
+    card.append(l, enRow(fb.corrected));
+  }
+
+  if (fb.natural.length) {
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "ネイティブならこう言う";
+    card.append(l);
+    fb.natural.forEach(n => card.append(enRow(n)));
+  }
+  wrap.append(card);
+
+  if (fb.explanation) {
+    const c2 = document.createElement("div");
+    c2.className = "fb-card";
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "解説";
+    const p = document.createElement("div");
+    p.className = "fb-ja"; p.textContent = fb.explanation;
+    c2.append(l, p);
+    wrap.append(c2);
+  }
+
+  if (fb.level_up) {
+    const c3 = document.createElement("div");
+    c3.className = "fb-card";
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "レベルアップ表現";
+    c3.append(l, enRow(fb.level_up));
+    wrap.append(c3);
+  }
+}
+
+/* =====================================================================
+ * 読み上げ（speechSynthesis）
+ * ===================================================================== */
+let voices = [];
+function loadVoices() { voices = speechSynthesis.getVoices(); }
+if ("speechSynthesis" in window) {
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+function pickVoice() {
+  return voices.find(v => v.lang === "en-US" && v.localService)
+      || voices.find(v => v.lang === "en-US")
+      || voices.find(v => v.lang && v.lang.startsWith("en"))
+      || null;
+}
+
+/* texts を順に読む。onAllDone は全文終了時に一度だけ */
+function speak(texts, onAllDone) {
+  if (!("speechSynthesis" in window) || !texts.length) { if (onAllDone) onAllDone(); return; }
+  speechSynthesis.cancel();
+  const voice = pickVoice();
+  let idx = 0;
+  const next = () => {
+    if (idx >= texts.length) { if (onAllDone) onAllDone(); return; }
+    const u = new SpeechSynthesisUtterance(texts[idx++]);
+    u.lang = "en-US";
+    if (voice) u.voice = voice;
+    u.rate = settings.rate;
+    u.onend = next;
+    u.onerror = next;
+    speechSynthesis.speak(u);
+  };
+  next();
+}
+
+/* フィードバック読み上げ：認識を必ず停止してから話し、終了後に再開 */
+function speakFeedback(fb) {
+  stopRecognition();  /* 自分の声（TTS）の誤認識防止 */
+  const texts = [];
+  if (!fb.correct && fb.corrected) texts.push(fb.corrected);
+  fb.natural.forEach(n => texts.push(n));
+  if (!texts.length && fb.corrected) texts.push(fb.corrected);
+
+  setState("speaking");
+  speak(texts, () => {
+    if (state === "speaking") afterFeedbackDone();
+  });
+}
+
+function stopSpeaking() {
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+
+/* =====================================================================
+ * ハンズフリーモード + Wake Lock
+ * ===================================================================== */
+let wakeLock = null;
+
+async function acquireWakeLock() {
+  if (!("wakeLock" in navigator)) {
+    showError("この環境は画面ロック防止（Wake Lock API）に非対応です。ハンズフリー中は画面が自動消灯することがあります。");
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (_) {
+    showError("画面ロック防止を有効にできませんでした。ハンズフリー中は画面が自動消灯することがあります。");
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && handsFree && !wakeLock) acquireWakeLock();
+});
+
+function enterHandsFree() {
+  handsFree = true;
+  $("handsfree-toggle").checked = true;
+  acquireWakeLock();
+  beginListening();
+}
+
+function exitHandsFree(sayBye) {
+  handsFree = false;
+  $("handsfree-toggle").checked = false;
+  releaseWakeLock();
+  stopRecognition();
+  stopSpeaking();
+  clearBuffers();
+  updateTranscript();
+  setState("idle");
+  if (sayBye) $("status-sub").textContent = "ハンズフリーを終了しました";
+}
+
+$("handsfree-toggle").addEventListener("change", (e) => {
+  if (e.target.checked) enterHandsFree();
+  else exitHandsFree(false);
+});
+
+/* =====================================================================
+ * マイクボタン（手動モード）
+ * ===================================================================== */
+$("mic-btn").addEventListener("click", () => {
+  if (!SR) return;
+  if (state === "idle") {
+    beginListening();
+  } else if (state === "listening") {
+    finalizeUtterance();
+  } else if (state === "speaking") {
+    stopSpeaking();
+    afterFeedbackDone();
+  }
+  /* processing中は無効化済み */
+});
+
+/* =====================================================================
+ * 履歴
+ * ===================================================================== */
+function saveToHistory(spoken, fb) {
+  const h = store.getHistory();
+  h.unshift({
+    id: Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+    ts: Date.now(),
+    spoken,
+    correct: !!fb.correct,
+    corrected: fb.corrected || "",
+    natural: fb.natural || [],
+    explanation: fb.explanation || "",
+    level_up: fb.level_up || "",
+  });
+  if (h.length > 500) h.length = 500;
+  store.setHistory(h);
+}
+
+function fmtDate(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderHistory() {
+  const list = $("history-list");
+  const h = store.getHistory();
+  list.innerHTML = "";
+  if (!h.length) {
+    list.innerHTML = '<div class="hist-empty">まだ練習の記録がありません。<br>「練習」タブで話してみましょう。</div>';
+    return;
+  }
+  h.forEach(item => {
+    const el = document.createElement("div");
+    el.className = "hist-item";
+
+    const head = document.createElement("div");
+    head.className = "hist-date";
+    const dateSpan = document.createElement("span");
+    dateSpan.textContent = fmtDate(item.ts) + (item.correct ? "　✓" : "　✗");
+    const del = document.createElement("button");
+    del.className = "hist-del";
+    del.textContent = "削除";
+    del.onclick = () => {
+      store.setHistory(store.getHistory().filter(x => x.id !== item.id));
+      renderHistory();
+    };
+    head.append(dateSpan, del);
+    el.append(head);
+
+    const spoken = document.createElement("div");
+    spoken.className = "hist-spoken";
+    spoken.textContent = item.spoken;
+    el.append(spoken);
+
+    if (!item.correct && item.corrected) {
+      const l = document.createElement("div");
+      l.className = "fb-label"; l.textContent = "修正";
+      el.append(l, enRow(item.corrected));
+    }
+    (item.natural || []).forEach((n, i) => {
+      if (i === 0) {
+        const l = document.createElement("div");
+        l.className = "fb-label"; l.textContent = "自然な表現";
+        el.append(l);
+      }
+      el.append(enRow(n));
+    });
+    list.append(el);
+  });
+}
+
+/* =====================================================================
+ * 設定
+ * ===================================================================== */
+function flashSaved() {
+  const f = $("save-flash");
+  f.classList.add("show");
+  setTimeout(() => f.classList.remove("show"), 1500);
+}
+
+$("api-key").value = store.getKey();
+$("api-key").addEventListener("change", (e) => {
+  store.setKey(e.target.value.trim());
+  flashSaved();
+  hideError();
+});
+$("key-toggle").addEventListener("click", () => {
+  const inp = $("api-key");
+  const show = inp.type === "password";
+  inp.type = show ? "text" : "password";
+  $("key-toggle").textContent = show ? "隠す" : "表示";
+});
+
+function initSeg(segId, attr, current, apply) {
+  const seg = $(segId);
+  [...seg.children].forEach(btn => {
+    btn.classList.toggle("on", btn.dataset[attr] === String(current));
+    btn.addEventListener("click", () => {
+      [...seg.children].forEach(b => b.classList.remove("on"));
+      btn.classList.add("on");
+      apply(btn.dataset[attr]);
+      store.setSettings(settings);
+      flashSaved();
+    });
+  });
+}
+initSeg("rate-seg", "rate", settings.rate.toFixed(1), v => { settings.rate = parseFloat(v); });
+initSeg("detail-seg", "detail", settings.detail, v => { settings.detail = v; });
+
+/* =====================================================================
+ * タブ切り替え
+ * ===================================================================== */
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + name));
+  if (name === "history") renderHistory();
+}
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => switchTab(t.dataset.tab));
+});
+
+/* =====================================================================
+ * Service Worker
+ * ===================================================================== */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });
+}
+
+/* 初期表示 */
+setState("idle");
+if (!store.getKey()) {
+  showError("はじめに「設定」タブで Anthropic APIキーを入力してください。", true);
+}
+</script>
+</body>
+</html>
