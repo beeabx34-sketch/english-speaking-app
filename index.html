@@ -89,6 +89,10 @@
     background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
     padding: 14px 16px; margin-bottom: 10px;
   }
+  .fb-praise {
+    font-family: Georgia, "Times New Roman", serif; font-style: italic;
+    font-size: 24px; font-weight: 700; color: var(--accent); margin-bottom: 4px;
+  }
   .fb-verdict { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
   .fb-verdict.ok { color: var(--accent); }
   .fb-verdict.ng { color: var(--danger); }
@@ -262,6 +266,15 @@
       </div>
 
       <div class="set-group">
+        <div class="set-title">添削の速さ</div>
+        <div class="seg" id="model-seg">
+          <button data-model="sonnet" class="on">品質重視（標準）</button>
+          <button data-model="haiku">スピード重視</button>
+        </div>
+        <div class="set-note">スピード重視は軽量モデル（Haiku）を使い、応答が速く料金も安くなります。解説の質は標準の方が上です。</div>
+      </div>
+
+      <div class="set-group">
         <div class="set-title">読み上げ速度</div>
         <div class="seg" id="rate-seg">
           <button data-rate="0.7">0.7x</button>
@@ -298,8 +311,9 @@ const store = {
   getKey: () => localStorage.getItem(KEYS.key) || "",
   setKey: (v) => localStorage.setItem(KEYS.key, v),
   getSettings() {
-    try { return Object.assign({ rate: 1.0, detail: "brief" }, JSON.parse(localStorage.getItem(KEYS.settings) || "{}")); }
-    catch { return { rate: 1.0, detail: "brief" }; }
+    const def = { rate: 1.0, detail: "brief", model: "sonnet" };
+    try { return Object.assign(def, JSON.parse(localStorage.getItem(KEYS.settings) || "{}")); }
+    catch { return def; }
   },
   setSettings(s) { localStorage.setItem(KEYS.settings, JSON.stringify(s)); },
   getHistory() {
@@ -498,7 +512,7 @@ function finalizeUtterance() {
  * Claude API 添削
  * ===================================================================== */
 const API_URL = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-6";
+const MODELS = { sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5" };
 
 function systemPrompt(mode) {
   const detail = settings.detail === "detailed"
@@ -528,6 +542,7 @@ function systemPrompt(mode) {
 必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
 
 {
+  "praise": "英文の出来に応じた英語のひとこと評価。例: Perfect! / Excellent! / Great sentence! / Good! / Nice try! 出来に応じて正直に選ぶこと（毎回最上級にしない。完璧で自然ならPerfect!やExcellent!、通じるが改善余地ありならGood!、誤りが多ければNice try!など）",
   "correct": true または false（文法的に通じるかどうか）,
   "corrected": "誤りがあれば修正した英文。誤りがなければ元の文をそのまま",
   "natural": ["ネイティブならこう言う、というより自然な表現。1〜2案の配列"],
@@ -551,7 +566,7 @@ async function callClaude(text, mode) {
       "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: MODELS[settings.model] || MODELS.sonnet,
       max_tokens: 1024,
       system: systemPrompt(mode),
       messages: [{ role: "user", content: text }],
@@ -574,6 +589,7 @@ async function callClaude(text, mode) {
   if (start === -1 || end === -1) throw new Error("応答の形式が想定外でした");
   const fb = JSON.parse(raw.slice(start, end + 1));
   fb.natural = Array.isArray(fb.natural) ? fb.natural : (fb.natural ? [String(fb.natural)] : []);
+  fb.praise = typeof fb.praise === "string" ? fb.praise.trim() : "";
   return fb;
 }
 
@@ -649,6 +665,13 @@ function renderFeedback(spoken, fb, mode) {
 
   const card = document.createElement("div");
   card.className = "fb-card";
+
+  if (mode !== "ja" && fb.praise) {
+    const p = document.createElement("div");
+    p.className = "fb-praise";
+    p.textContent = fb.praise;
+    card.append(p);
+  }
 
   const verdict = document.createElement("div");
   if (mode === "ja") {
@@ -735,6 +758,7 @@ function speak(texts, onAllDone) {
 function speakFeedback(fb) {
   stopRecognition();  /* 自分の声（TTS）の誤認識防止 */
   const texts = [];
+  if (fb.praise) texts.push(fb.praise);
   if (!fb.correct && fb.corrected) texts.push(fb.corrected);
   fb.natural.forEach(n => texts.push(n));
   if (!texts.length && fb.corrected) texts.push(fb.corrected);
@@ -843,6 +867,7 @@ function saveToHistory(spoken, fb, mode) {
     ts: Date.now(),
     mode: mode || "en",
     spoken,
+    praise: fb.praise || "",
     correct: !!fb.correct,
     corrected: fb.corrected || "",
     natural: fb.natural || [],
@@ -874,7 +899,9 @@ function renderHistory() {
     const head = document.createElement("div");
     head.className = "hist-date";
     const dateSpan = document.createElement("span");
-    dateSpan.textContent = fmtDate(item.ts) + (item.mode === "ja" ? "　💡日本語→英語" : (item.correct ? "　✓" : "　✗"));
+    dateSpan.textContent = fmtDate(item.ts)
+      + (item.mode === "ja" ? "　💡日本語→英語" : (item.correct ? "　✓" : "　✗"))
+      + (item.praise ? "　" + item.praise : "");
     const del = document.createElement("button");
     del.className = "hist-del";
     del.textContent = "削除";
@@ -945,6 +972,7 @@ function initSeg(segId, attr, current, apply) {
 }
 initSeg("rate-seg", "rate", settings.rate.toFixed(1), v => { settings.rate = parseFloat(v); });
 initSeg("detail-seg", "detail", settings.detail, v => { settings.detail = v; });
+initSeg("model-seg", "model", settings.model, v => { settings.model = v; });
 
 /* =====================================================================
  * タブ切り替え
