@@ -160,6 +160,16 @@
   .hist-del { background: none; border: none; color: var(--danger); font-size: 13px; cursor: pointer; padding: 4px 6px; }
   .hist-spoken { font-family: Georgia, serif; font-size: 16px; margin-bottom: 8px; color: var(--ink-soft); }
   .hist-spoken::before { content: "🗣 "; font-size: 13px; }
+  .hist-exp { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  .hist-exp summary {
+    font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer;
+    list-style: none; -webkit-user-select: none; user-select: none;
+  }
+  .hist-exp summary::-webkit-details-marker { display: none; }
+  .hist-exp summary::before { content: "▸ "; }
+  .hist-exp[open] summary::before { content: "▾ "; }
+  .hist-exp .fb-ja { margin-top: 6px; }
+  .hist-exp .fb-label { margin-top: 10px; }
 
   /* ===== settings ===== */
   .set-group { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
@@ -931,6 +941,27 @@ function renderHistory() {
       }
       el.append(enRow(n));
     });
+
+    /* 解説・レベルアップ表現（タップで開閉） */
+    if (item.explanation || item.level_up) {
+      const det = document.createElement("details");
+      det.className = "hist-exp";
+      const sum = document.createElement("summary");
+      sum.textContent = "解説を読む";
+      det.append(sum);
+      if (item.explanation) {
+        const p = document.createElement("div");
+        p.className = "fb-ja";
+        p.textContent = item.explanation;
+        det.append(p);
+      }
+      if (item.level_up) {
+        const l = document.createElement("div");
+        l.className = "fb-label"; l.textContent = "レベルアップ表現";
+        det.append(l, enRow(item.level_up));
+      }
+      el.append(det);
+    }
     list.append(el);
   });
 }
