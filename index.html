@@ -166,6 +166,7 @@
   .hist-del { background: none; border: none; color: var(--danger); font-size: 13px; cursor: pointer; padding: 4px 6px; }
   .hist-spoken { font-family: Georgia, serif; font-size: 16px; margin-bottom: 8px; color: var(--ink-soft); }
   .hist-spoken::before { content: "🗣 "; font-size: 13px; }
+  .hist-meaning { font-size: 12px; color: var(--ink-soft); margin: -4px 0 8px; }
   .hist-exp { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
   .hist-exp summary {
     font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer;
@@ -583,6 +584,7 @@ function systemPrompt(mode) {
 
 {
   "praise": "英文の出来に応じた英語のひとこと評価。例: Perfect! / Excellent! / Great sentence! / Good! / Nice try! 出来に応じて正直に選ぶこと（毎回最上級にしない。完璧で自然ならPerfect!やExcellent!、通じるが改善余地ありならGood!、誤りが多ければNice try!など）",
+  "meaning_ja": "与えられた英文（＝音声認識が聞き取った文）をそのまま忠実に日本語訳した1文。学習者が『自分の文がどう認識・解釈されたか』を確認するためのものなので、意図を推測して直さず聞き取られた通りに訳すこと",
   "correct": true または false（文法的に通じるかどうか）,
   "corrected": "誤りがあれば修正した英文。誤りがなければ元の文をそのまま",
   "natural": ["ネイティブならこう言う、というより自然な表現。1〜2案の配列"],
@@ -630,6 +632,7 @@ async function callClaude(text, mode) {
   const fb = JSON.parse(raw.slice(start, end + 1));
   fb.natural = Array.isArray(fb.natural) ? fb.natural : (fb.natural ? [String(fb.natural)] : []);
   fb.praise = typeof fb.praise === "string" ? fb.praise.trim() : "";
+  fb.meaning_ja = typeof fb.meaning_ja === "string" ? fb.meaning_ja.trim() : "";
   return fb;
 }
 
@@ -723,6 +726,15 @@ function renderFeedback(spoken, fb, mode) {
   }
   card.append(verdict);
 
+  if (mode !== "ja" && fb.meaning_ja) {
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "聞き取った文の意味";
+    const p = document.createElement("div");
+    p.className = "fb-ja"; p.textContent = fb.meaning_ja;
+    p.style.marginBottom = "8px";
+    card.append(l, p);
+  }
+
   if (mode !== "ja" && !fb.correct && fb.corrected) {
     const l = document.createElement("div");
     l.className = "fb-label"; l.textContent = "修正";
@@ -768,25 +780,30 @@ if ("speechSynthesis" in window) {
   loadVoices();
   speechSynthesis.onvoiceschanged = loadVoices;
 }
-function pickVoice() {
-  return voices.find(v => v.lang === "en-US" && v.localService)
-      || voices.find(v => v.lang === "en-US")
-      || voices.find(v => v.lang && v.lang.startsWith("en"))
+function pickVoice(langCode) {
+  langCode = langCode || "en-US";
+  const base = langCode.split("-")[0];
+  return voices.find(v => v.lang === langCode && v.localService)
+      || voices.find(v => v.lang === langCode)
+      || voices.find(v => v.lang && v.lang.startsWith(base))
       || null;
 }
 
-/* texts を順に読む。onAllDone は全文終了時に一度だけ。rate省略時は設定値 */
-function speak(texts, onAllDone, rate) {
-  if (!("speechSynthesis" in window) || !texts.length) { if (onAllDone) onAllDone(); return; }
+/* items を順に読む。各要素は文字列（en-US）または {text, lang, rate}。
+ * onAllDone は全文終了時に一度だけ。rate省略時は設定値 */
+function speak(items, onAllDone, rate) {
+  if (!("speechSynthesis" in window) || !items.length) { if (onAllDone) onAllDone(); return; }
   speechSynthesis.cancel();
-  const voice = pickVoice();
   let idx = 0;
   const next = () => {
-    if (idx >= texts.length) { if (onAllDone) onAllDone(); return; }
-    const u = new SpeechSynthesisUtterance(texts[idx++]);
-    u.lang = "en-US";
-    if (voice) u.voice = voice;
-    u.rate = rate || settings.rate;
+    if (idx >= items.length) { if (onAllDone) onAllDone(); return; }
+    const it = items[idx++];
+    const isObj = typeof it === "object";
+    const u = new SpeechSynthesisUtterance(isObj ? it.text : it);
+    u.lang = (isObj && it.lang) || "en-US";
+    const v = pickVoice(u.lang);
+    if (v) u.voice = v;
+    u.rate = (isObj && it.rate) || rate || settings.rate;
     u.onend = next;
     u.onerror = next;
     speechSynthesis.speak(u);
@@ -799,6 +816,8 @@ function speakFeedback(fb) {
   stopRecognition();  /* 自分の声（TTS）の誤認識防止 */
   const texts = [];
   if (fb.praise) texts.push(fb.praise);
+  /* 聞き取った文の日本語訳（認識ズレの確認用）を日本語音声で */
+  if (fb.meaning_ja) texts.push({ text: fb.meaning_ja, lang: "ja-JP", rate: 1.0 });
   if (!fb.correct && fb.corrected) texts.push(fb.corrected);
   fb.natural.forEach(n => texts.push(n));
   if (!texts.length && fb.corrected) texts.push(fb.corrected);
@@ -820,7 +839,39 @@ function stopSpeaking() {
  * "next" で次の録音へ、"stop" で終了。
  * ※発音判定は「音声認識がお手本通りに聞き取れたか」による近似。
  * ===================================================================== */
-let shadow = null; /* { fullText, curText, curIsFull, missAttempts, lastMiss } */
+let shadow = null; /* { full, chunks, stage, practice, missAttempts, lastMiss } */
+
+/* 長い文を意味の切れ目（句読点・接続詞）で7語前後のチャンクに分割する。8語以下はそのまま */
+const CHUNK_CONJ = new Set(["and","but","because","so","when","while","before","after","although","though","if","that","which","who","where","then","since","unless","until"]);
+function chunkPhrase(text) {
+  const words = String(text).trim().split(/\s+/);
+  if (words.length <= 8) return [words.join(" ")];
+  const chunks = [];
+  let cur = [];
+  for (let i = 0; i < words.length; i++) {
+    cur.push(words[i]);
+    const endsPunct = /[,;:]$/.test(words[i]);
+    const next = words[i + 1];
+    const nextConj = next && CHUNK_CONJ.has(next.toLowerCase().replace(/[^a-z']/g, ""));
+    if ((endsPunct && cur.length >= 3) || (nextConj && cur.length >= 4) || cur.length >= 7) {
+      chunks.push(cur.join(" "));
+      cur = [];
+    }
+  }
+  if (cur.length) {
+    if (cur.length <= 2 && chunks.length) chunks[chunks.length - 1] += " " + cur.join(" ");
+    else chunks.push(cur.join(" "));
+  }
+  return chunks;
+}
+
+/* いま練習中のお手本テキスト */
+function shadowTargetText() {
+  if (!shadow) return "";
+  if (shadow.practice) return shadow.practice;
+  if (shadow.stage >= shadow.chunks.length) return shadow.full;
+  return shadow.chunks[shadow.stage];
+}
 
 /* 単語正規化（小文字化・記号除去・短縮形の展開） */
 const CONTRACTIONS = {
@@ -864,10 +915,14 @@ function renderShadowView(attempt, missWords) {
   el.innerHTML = "";
   const lbl = document.createElement("div");
   lbl.className = "shadow-lbl";
-  lbl.textContent = shadow && shadow.curIsFull ? "🔁 お手本（全体）" : "🔁 お手本（部分練習・ゆっくり）";
+  if (!shadow) lbl.textContent = "";
+  else if (shadow.practice) lbl.textContent = "🔁 お手本（部分練習・ゆっくり）";
+  else if (shadow.chunks.length > 1 && shadow.stage < shadow.chunks.length)
+    lbl.textContent = `🔁 お手本（${shadow.stage + 1}/${shadow.chunks.length}）`;
+  else lbl.textContent = "🔁 お手本（全体）";
   const tgt = document.createElement("div");
   tgt.className = "shadow-target";
-  tgt.textContent = shadow ? shadow.curText : "";
+  tgt.textContent = shadowTargetText();
   el.append(lbl, tgt);
   if (attempt) {
     const a = document.createElement("span");
@@ -892,7 +947,14 @@ function renderShadowView(attempt, missWords) {
 function maybeStartShadowing(fb) {
   const target = (fb.natural && fb.natural[0]) || fb.corrected || "";
   if (settings.shadow !== "on" || !target || !SR) { afterFeedbackDone(); return; }
-  shadow = { fullText: target, curText: target, curIsFull: true, missAttempts: 0, lastMiss: [] };
+  shadow = {
+    full: target,
+    chunks: chunkPhrase(target),
+    stage: 0,        /* 0..chunks.length-1 = チャンク練習、chunks.length = 全体通し */
+    practice: null,  /* 部分練習中のテキスト */
+    missAttempts: 0,
+    lastMiss: [],
+  };
   shadowPlay(false);
 }
 
@@ -903,7 +965,7 @@ function shadowPlay(slow, prefix) {
   setState("speaking");
   renderShadowView("", shadow.lastMiss);
   const rate = slow ? Math.max(0.5, (settings.rate) * 0.7) : settings.rate;
-  const texts = prefix ? [prefix, shadow.curText] : [shadow.curText];
+  const texts = prefix ? [prefix, shadowTargetText()] : [shadowTargetText()];
   speak(texts, () => { if (shadow) shadowListen(); }, rate);
 }
 
@@ -917,7 +979,7 @@ function shadowListen() {
   /* 無反応ならお手本をもう一度 */
   clearTimeout(silenceTimer);
   silenceTimer = setTimeout(() => {
-    if (state === "shadowing" && shadow) shadowPlay(!shadow.curIsFull);
+    if (state === "shadowing" && shadow) shadowPlay(!!shadow.practice);
   }, SHADOW_WAIT_MS);
 }
 
@@ -943,21 +1005,28 @@ function finalizeShadowAttempt() {
     return;
   }
 
-  const { tWords, miss } = diffTarget(shadow.curText, attempt);
+  const target = shadowTargetText();
+  const { tWords, miss } = diffTarget(target, attempt);
   const ok = miss.length === 0 || (tWords.length >= 6 && miss.length <= 1);
 
   if (ok) {
-    if (shadow.curIsFull) {
-      /* 全体が言えた → ほめて、もう一周（"next"と言うまで繰り返し） */
-      shadow.lastMiss = [];
-      shadowPlay(false, "Good!");
-    } else {
-      /* 部分練習クリア → 最初から全体をもう一度 */
-      shadow.curText = shadow.fullText;
-      shadow.curIsFull = true;
-      shadow.missAttempts = 0;
-      shadow.lastMiss = [];
+    shadow.lastMiss = [];
+    shadow.missAttempts = 0;
+    if (shadow.practice) {
+      /* 部分練習クリア → いまのチャンク（または全体）をもう一度 */
+      shadow.practice = null;
       shadowPlay(false, "Nice!");
+    } else if (shadow.chunks.length > 1 && shadow.stage < shadow.chunks.length - 1) {
+      /* チャンククリア → 次のチャンクへ */
+      shadow.stage++;
+      shadowPlay(false, "Good!");
+    } else if (shadow.chunks.length > 1 && shadow.stage === shadow.chunks.length - 1) {
+      /* 全チャンク制覇 → 全体を通しで */
+      shadow.stage = shadow.chunks.length;
+      shadowPlay(false, "Good! Now all together.");
+    } else {
+      /* 全体（または短文）が言えた → ほめて、もう一周（"next"と言うまで繰り返し） */
+      shadowPlay(false, "Good!");
     }
     return;
   }
@@ -967,9 +1036,8 @@ function finalizeShadowAttempt() {
   renderShadowView(attempt, shadow.lastMiss);
   shadow.missAttempts++;
   if (shadow.missAttempts > 3) {
-    /* 3回続けて合わなければ、全体ゆっくりに戻して仕切り直し */
-    shadow.curText = shadow.fullText;
-    shadow.curIsFull = true;
+    /* 3回続けて合わなければ、いまのチャンクをゆっくり再生して仕切り直し */
+    shadow.practice = null;
     shadow.missAttempts = 0;
     shadowPlay(true);
     return;
@@ -979,8 +1047,7 @@ function finalizeShadowAttempt() {
   for (let k = 1; k < miss.length && miss[k] === miss[k - 1] + 1; k++) runEnd = miss[k];
   const s = Math.max(0, runStart - 1);
   const e = Math.min(tWords.length, runEnd + 2);
-  shadow.curText = tWords.slice(s, e).join(" ");
-  shadow.curIsFull = false;
+  shadow.practice = tWords.slice(s, e).join(" ");
   shadowPlay(true);
 }
 
@@ -1097,6 +1164,7 @@ function saveToHistory(spoken, fb, mode) {
     ts: Date.now(),
     mode: mode || "en",
     spoken,
+    meaning_ja: fb.meaning_ja || "",
     praise: fb.praise || "",
     correct: !!fb.correct,
     corrected: fb.corrected || "",
@@ -1146,6 +1214,13 @@ function renderHistory() {
     spoken.className = "hist-spoken";
     spoken.textContent = item.spoken;
     el.append(spoken);
+
+    if (item.meaning_ja) {
+      const m = document.createElement("div");
+      m.className = "hist-meaning";
+      m.textContent = "→ " + item.meaning_ja;
+      el.append(m);
+    }
 
     if (item.mode !== "ja" && !item.correct && item.corrected) {
       const l = document.createElement("div");
