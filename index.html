@@ -42,6 +42,7 @@
   body[data-state="listening"]  { --bg-current: var(--bg-listening); }
   body[data-state="processing"] { --bg-current: var(--bg-processing); }
   body[data-state="speaking"]   { --bg-current: var(--bg-speaking); }
+  body[data-state="shadowing"]  { --bg-current: #ece9f4; }
 
   .app { display: flex; flex-direction: column; height: 100dvh; }
 
@@ -83,6 +84,11 @@
   }
   .transcript .interim { color: var(--ink-soft); }
   .transcript .placeholder { color: #b9b4a8; font-size: 15px; font-family: -apple-system, sans-serif; }
+  .shadow-lbl { font-size: 12px; font-weight: 700; color: #6d5f96; font-family: -apple-system, sans-serif; margin-bottom: 4px; }
+  .shadow-target { font-family: Georgia, "Times New Roman", serif; font-size: 19px; line-height: 1.5; }
+  .shadow-attempt { display: block; margin-top: 8px; font-size: 16px; }
+  .shadow-miss { font-size: 13px; margin-top: 8px; color: var(--ink-soft); font-family: -apple-system, sans-serif; }
+  .shadow-miss .miss { color: var(--danger); font-weight: 700; font-family: Georgia, serif; font-size: 15px; }
 
   .feedback { margin-top: 14px; }
   .fb-card {
@@ -276,6 +282,15 @@
       </div>
 
       <div class="set-group">
+        <div class="set-title">シャドーイング練習</div>
+        <div class="seg" id="shadow-seg">
+          <button data-shadow="on" class="on">する</button>
+          <button data-shadow="off">しない</button>
+        </div>
+        <div class="set-note">添削の読み上げ後、お手本フレーズを繰り返し発音する練習に入ります。うまく言えなかった部分だけゆっくり再生→部分練習→全体に戻る、を繰り返します。“next”と言うと次の文の録音へ。</div>
+      </div>
+
+      <div class="set-group">
         <div class="set-title">添削の速さ</div>
         <div class="seg" id="model-seg">
           <button data-model="sonnet" class="on">品質重視（標準）</button>
@@ -321,7 +336,7 @@ const store = {
   getKey: () => localStorage.getItem(KEYS.key) || "",
   setKey: (v) => localStorage.setItem(KEYS.key, v),
   getSettings() {
-    const def = { rate: 1.0, detail: "brief", model: "sonnet" };
+    const def = { rate: 1.0, detail: "brief", model: "sonnet", shadow: "on" };
     try { return Object.assign(def, JSON.parse(localStorage.getItem(KEYS.settings) || "{}")); }
     catch { return def; }
   },
@@ -347,6 +362,7 @@ const STATUS = {
   listening:  { icon: "🟢", label: "聞き取り中…",     sub: "話し終えたらタップで確定", pulse: true },
   processing: { icon: "⏳", label: "添削中…",         sub: "Claudeが英文をチェックしています", pulse: true },
   speaking:   { icon: "🔊", label: "読み上げ中…",     sub: "お手本を聞きましょう", pulse: true },
+  shadowing:  { icon: "🔁", label: "シャドーイング",   sub: "お手本に続けて発音しましょう（“next”で次へ）", pulse: true },
 };
 
 function setState(next) {
@@ -364,9 +380,10 @@ function setState(next) {
   const mic = $("mic-btn");
   mic.classList.toggle("listening", next === "listening");
   mic.disabled = (next === "processing");
-  mic.textContent = next === "listening" ? "⏹" : next === "speaking" ? "🔇" : "🎤";
+  mic.textContent = next === "listening" ? "⏹" : next === "speaking" ? "🔇" : next === "shadowing" ? "⏭" : "🎤";
   $("mic-hint").textContent =
     next === "listening" ? (handsFree ? "話し終えると自動で添削されます" : "もう一度タップで確定") :
+    next === "shadowing" ? "“next”と言うかタップで次の録音へ" :
     next === "speaking" ? "タップで読み上げを停止" :
     next === "processing" ? "しばらくお待ちください…" :
     handsFree ? "ハンズフリー中：自動で聞き取りが始まります" : "タップで録音開始 → もう一度タップで確定";
@@ -396,12 +413,18 @@ let sessFinal = "";   // 現セッションの確定分
 let interim = "";     // 現セッションの暫定分
 let silenceTimer = null;
 const SILENCE_MS = 2000;
+const SHADOW_SILENCE_MS = 1600;   /* シャドーイング中の確定はややきびきびと */
+const SHADOW_WAIT_MS = 8000;      /* 無反応ならお手本を再再生 */
 
 function currentText() {
   return (baseFinal + " " + sessFinal + " " + interim).replace(/\s+/g, " ").trim();
 }
 
 function updateTranscript() {
+  if (state === "shadowing" && shadow) {
+    renderShadowView(currentText(), shadow.lastMiss);
+    return;
+  }
   const el = $("transcript");
   const fixed = (baseFinal + " " + sessFinal).replace(/\s+/g, " ").trim();
   if (!fixed && !interim.trim()) {
@@ -429,7 +452,7 @@ function makeRecognition() {
   r.interimResults = true;
 
   r.onresult = (e) => {
-    if (state !== "listening") return;
+    if (state !== "listening" && state !== "shadowing") return;
     sessFinal = ""; interim = "";
     for (let i = 0; i < e.results.length; i++) {
       const res = e.results[i];
@@ -437,7 +460,7 @@ function makeRecognition() {
       else interim += res[0].transcript;
     }
     updateTranscript();
-    if (handsFree && currentText()) resetSilenceTimer();
+    if (currentText() && (state === "shadowing" || (handsFree && state === "listening"))) resetSilenceTimer();
   };
 
   r.onerror = (e) => {
@@ -454,8 +477,8 @@ function makeRecognition() {
     recRunning = false;
     baseFinal = (baseFinal + " " + sessFinal + " " + interim).replace(/\s+/g, " ").trim();
     sessFinal = ""; interim = "";
-    if (state === "listening") {
-      setTimeout(() => { if (state === "listening") startRecognition(); }, 250);
+    if (state === "listening" || state === "shadowing") {
+      setTimeout(() => { if (state === "listening" || state === "shadowing") startRecognition(); }, 250);
     }
   };
   return r;
@@ -483,12 +506,19 @@ function stopRecognition() {
 
 function resetSilenceTimer() {
   clearTimeout(silenceTimer);
-  silenceTimer = setTimeout(() => {
-    if (state === "listening" && handsFree) finalizeUtterance();
-  }, SILENCE_MS);
+  if (state === "shadowing") {
+    silenceTimer = setTimeout(() => {
+      if (state === "shadowing") finalizeShadowAttempt();
+    }, SHADOW_SILENCE_MS);
+  } else {
+    silenceTimer = setTimeout(() => {
+      if (state === "listening" && handsFree) finalizeUtterance();
+    }, SILENCE_MS);
+  }
 }
 
 function beginListening() {
+  if (shadow) exitShadow();
   hideError();
   clearBuffers();
   updateTranscript();
@@ -745,8 +775,8 @@ function pickVoice() {
       || null;
 }
 
-/* texts を順に読む。onAllDone は全文終了時に一度だけ */
-function speak(texts, onAllDone) {
+/* texts を順に読む。onAllDone は全文終了時に一度だけ。rate省略時は設定値 */
+function speak(texts, onAllDone, rate) {
   if (!("speechSynthesis" in window) || !texts.length) { if (onAllDone) onAllDone(); return; }
   speechSynthesis.cancel();
   const voice = pickVoice();
@@ -756,7 +786,7 @@ function speak(texts, onAllDone) {
     const u = new SpeechSynthesisUtterance(texts[idx++]);
     u.lang = "en-US";
     if (voice) u.voice = voice;
-    u.rate = settings.rate;
+    u.rate = rate || settings.rate;
     u.onend = next;
     u.onerror = next;
     speechSynthesis.speak(u);
@@ -775,12 +805,195 @@ function speakFeedback(fb) {
 
   setState("speaking");
   speak(texts, () => {
-    if (state === "speaking") afterFeedbackDone();
+    if (state === "speaking") maybeStartShadowing(fb);
   });
 }
 
 function stopSpeaking() {
   if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+
+/* =====================================================================
+ * シャドーイング練習
+ * お手本再生 → 続けて発音 → 認識結果を単語照合 →
+ * 言えなかった部分だけゆっくり再生して部分練習 → 全体に戻る、を繰り返す。
+ * "next" で次の録音へ、"stop" で終了。
+ * ※発音判定は「音声認識がお手本通りに聞き取れたか」による近似。
+ * ===================================================================== */
+let shadow = null; /* { fullText, curText, curIsFull, missAttempts, lastMiss } */
+
+/* 単語正規化（小文字化・記号除去・短縮形の展開） */
+const CONTRACTIONS = {
+  "i'm":"i am","you're":"you are","it's":"it is","that's":"that is","there's":"there is",
+  "he's":"he is","she's":"she is","we're":"we are","they're":"they are","let's":"let us",
+  "don't":"do not","doesn't":"does not","didn't":"did not","can't":"cannot","won't":"will not",
+  "isn't":"is not","aren't":"are not","wasn't":"was not","weren't":"were not",
+  "i'll":"i will","you'll":"you will","we'll":"we will","i've":"i have","you've":"you have",
+  "i'd":"i would","gonna":"going to","wanna":"want to",
+};
+function normWords(s) {
+  s = String(s).toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[.,!?;:"()\[\]\-—…。、！？「」]/g, " ")
+    .replace(/\s+/g, " ").trim();
+  return s.split(" ").filter(Boolean).flatMap(w => (CONTRACTIONS[w] || w).split(" "));
+}
+
+/* お手本(target)と発音(attempt)をLCSで照合し、言えていないお手本側の単語indexを返す */
+function diffTarget(target, attempt) {
+  const t = normWords(target), a = normWords(attempt);
+  const n = t.length, m = a.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = t[i] === a[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const miss = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (t[i] === a[j]) { i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { miss.push(i); i++; }
+    else j++;
+  }
+  while (i < n) { miss.push(i); i++; }
+  return { tWords: t, miss };
+}
+
+/* お手本表示（要練習の単語は赤字） */
+function renderShadowView(attempt, missWords) {
+  const el = $("transcript");
+  el.innerHTML = "";
+  const lbl = document.createElement("div");
+  lbl.className = "shadow-lbl";
+  lbl.textContent = shadow && shadow.curIsFull ? "🔁 お手本（全体）" : "🔁 お手本（部分練習・ゆっくり）";
+  const tgt = document.createElement("div");
+  tgt.className = "shadow-target";
+  tgt.textContent = shadow ? shadow.curText : "";
+  el.append(lbl, tgt);
+  if (attempt) {
+    const a = document.createElement("span");
+    a.className = "interim shadow-attempt";
+    a.textContent = "🗣 " + attempt;
+    el.append(a);
+  }
+  if (missWords && missWords.length) {
+    const mrow = document.createElement("div");
+    mrow.className = "shadow-miss";
+    mrow.append("要練習: ");
+    missWords.forEach(w => {
+      const s = document.createElement("span");
+      s.className = "miss";
+      s.textContent = w;
+      mrow.append(s, " ");
+    });
+    el.append(mrow);
+  }
+}
+
+function maybeStartShadowing(fb) {
+  const target = (fb.natural && fb.natural[0]) || fb.corrected || "";
+  if (settings.shadow !== "on" || !target || !SR) { afterFeedbackDone(); return; }
+  shadow = { fullText: target, curText: target, curIsFull: true, missAttempts: 0, lastMiss: [] };
+  shadowPlay(false);
+}
+
+/* お手本を再生してから聞き取りへ。slow=trueで部分練習のゆっくり再生 */
+function shadowPlay(slow, prefix) {
+  if (!shadow) return;
+  stopRecognition();
+  setState("speaking");
+  renderShadowView("", shadow.lastMiss);
+  const rate = slow ? Math.max(0.5, (settings.rate) * 0.7) : settings.rate;
+  const texts = prefix ? [prefix, shadow.curText] : [shadow.curText];
+  speak(texts, () => { if (shadow) shadowListen(); }, rate);
+}
+
+function shadowListen() {
+  if (!shadow) return;
+  clearBuffers();
+  if (rec) rec.lang = "en-US"; /* 日本語モード中でもシャドーイングは英語認識 */
+  setState("shadowing");
+  renderShadowView("", shadow.lastMiss);
+  startRecognition();
+  /* 無反応ならお手本をもう一度 */
+  clearTimeout(silenceTimer);
+  silenceTimer = setTimeout(() => {
+    if (state === "shadowing" && shadow) shadowPlay(!shadow.curIsFull);
+  }, SHADOW_WAIT_MS);
+}
+
+function finalizeShadowAttempt() {
+  if (!shadow) return;
+  const attempt = currentText();
+  stopRecognition();
+  clearBuffers();
+  if (!attempt) { shadowListen(); return; }
+
+  const cmdWords = normWords(attempt).join(" ");
+  /* "next": シャドーイングを終えて次の録音へ */
+  if (cmdWords === "next" || cmdWords === "ネクスト" || cmdWords === "次") {
+    exitShadow();
+    beginListening();
+    return;
+  }
+  /* "stop": すべて終了 */
+  if (cmdWords === "stop" || cmdWords === "ストップ" || cmdWords === "終了") {
+    exitShadow();
+    if (handsFree) exitHandsFree(true); else setState("idle");
+    updateTranscriptIdle();
+    return;
+  }
+
+  const { tWords, miss } = diffTarget(shadow.curText, attempt);
+  const ok = miss.length === 0 || (tWords.length >= 6 && miss.length <= 1);
+
+  if (ok) {
+    if (shadow.curIsFull) {
+      /* 全体が言えた → ほめて、もう一周（"next"と言うまで繰り返し） */
+      shadow.lastMiss = [];
+      shadowPlay(false, "Good!");
+    } else {
+      /* 部分練習クリア → 最初から全体をもう一度 */
+      shadow.curText = shadow.fullText;
+      shadow.curIsFull = true;
+      shadow.missAttempts = 0;
+      shadow.lastMiss = [];
+      shadowPlay(false, "Nice!");
+    }
+    return;
+  }
+
+  /* 言えていない部分を切り出して、ゆっくり部分練習 */
+  shadow.lastMiss = miss.map(i => tWords[i]);
+  renderShadowView(attempt, shadow.lastMiss);
+  shadow.missAttempts++;
+  if (shadow.missAttempts > 3) {
+    /* 3回続けて合わなければ、全体ゆっくりに戻して仕切り直し */
+    shadow.curText = shadow.fullText;
+    shadow.curIsFull = true;
+    shadow.missAttempts = 0;
+    shadowPlay(true);
+    return;
+  }
+  const runStart = miss[0];
+  let runEnd = runStart;
+  for (let k = 1; k < miss.length && miss[k] === miss[k - 1] + 1; k++) runEnd = miss[k];
+  const s = Math.max(0, runStart - 1);
+  const e = Math.min(tWords.length, runEnd + 2);
+  shadow.curText = tWords.slice(s, e).join(" ");
+  shadow.curIsFull = false;
+  shadowPlay(true);
+}
+
+function exitShadow() {
+  shadow = null;
+  stopSpeaking();
+  stopRecognition();
+  clearBuffers();
+  if (rec) rec.lang = LANG_CODE[lang];
+}
+
+function updateTranscriptIdle() {
+  $("transcript").innerHTML = '<span class="placeholder">ここに認識された英語が表示されます</span>';
 }
 
 /* =====================================================================
@@ -818,6 +1031,7 @@ function exitHandsFree(sayBye) {
   handsFree = false;
   $("handsfree-toggle").checked = false;
   releaseWakeLock();
+  if (shadow) exitShadow();
   stopRecognition();
   stopSpeaking();
   clearBuffers();
@@ -839,6 +1053,7 @@ $("handsfree-toggle").addEventListener("change", (e) => {
     if (btn.dataset.lang === lang) return;
     lang = btn.dataset.lang;
     [...$("lang-seg").children].forEach(b => b.classList.toggle("on", b === btn));
+    if (shadow) { beginListening(); return; } /* シャドーイング中の切替は新モードで録音へ */
     if (rec) rec.lang = LANG_CODE[lang];
     if (state === "listening") {
       /* 聞き取り中なら新しい言語で聞き直す */
@@ -856,6 +1071,11 @@ $("handsfree-toggle").addEventListener("change", (e) => {
  * ===================================================================== */
 $("mic-btn").addEventListener("click", () => {
   if (!SR) return;
+  if (shadow) {
+    /* シャドーイング中のタップ = "next" と同じ（次の録音へ） */
+    beginListening();
+    return;
+  }
   if (state === "idle") {
     beginListening();
   } else if (state === "listening") {
@@ -1004,6 +1224,7 @@ function initSeg(segId, attr, current, apply) {
 initSeg("rate-seg", "rate", settings.rate.toFixed(1), v => { settings.rate = parseFloat(v); });
 initSeg("detail-seg", "detail", settings.detail, v => { settings.detail = v; });
 initSeg("model-seg", "model", settings.model, v => { settings.model = v; });
+initSeg("shadow-seg", "shadow", settings.shadow, v => { settings.shadow = v; });
 
 /* =====================================================================
  * タブ切り替え
