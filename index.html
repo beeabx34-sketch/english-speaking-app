@@ -841,11 +841,13 @@ function stopSpeaking() {
  * ===================================================================== */
 let shadow = null; /* { full, chunks, stage, practice, missAttempts, lastMiss } */
 
-/* 長い文を意味の切れ目（句読点・接続詞）で7語前後のチャンクに分割する。8語以下はそのまま */
+/* 長い文を意味の切れ目（句読点・接続詞）で4〜5語のチャンクに分割する。6語以下はそのまま
+ * （耳だけで覚えて復唱できる長さにする） */
 const CHUNK_CONJ = new Set(["and","but","because","so","when","while","before","after","although","though","if","that","which","who","where","then","since","unless","until"]);
+const CHUNK_MAX = 5;
 function chunkPhrase(text) {
   const words = String(text).trim().split(/\s+/);
-  if (words.length <= 8) return [words.join(" ")];
+  if (words.length <= 6) return [words.join(" ")];
   const chunks = [];
   let cur = [];
   for (let i = 0; i < words.length; i++) {
@@ -853,14 +855,18 @@ function chunkPhrase(text) {
     const endsPunct = /[,;:]$/.test(words[i]);
     const next = words[i + 1];
     const nextConj = next && CHUNK_CONJ.has(next.toLowerCase().replace(/[^a-z']/g, ""));
-    if ((endsPunct && cur.length >= 3) || (nextConj && cur.length >= 4) || cur.length >= 7) {
+    if ((endsPunct && cur.length >= 2) || (nextConj && cur.length >= 3) || cur.length >= CHUNK_MAX) {
       chunks.push(cur.join(" "));
       cur = [];
     }
   }
   if (cur.length) {
-    if (cur.length <= 2 && chunks.length) chunks[chunks.length - 1] += " " + cur.join(" ");
-    else chunks.push(cur.join(" "));
+    /* 末尾が短すぎる場合、前のチャンクと合わせても短いなら結合する */
+    if (cur.length <= 2 && chunks.length && chunks[chunks.length - 1].split(" ").length + cur.length <= CHUNK_MAX + 1) {
+      chunks[chunks.length - 1] += " " + cur.join(" ");
+    } else {
+      chunks.push(cur.join(" "));
+    }
   }
   return chunks;
 }
