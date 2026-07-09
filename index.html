@@ -790,26 +790,82 @@ function pickVoice(langCode) {
 }
 
 /* items を順に読む。各要素は文字列（en-US）または {text, lang, rate}。
- * onAllDone は全文終了時に一度だけ。rate省略時は設定値 */
+ * onAllDone は全文終了時に一度だけ。rate省略時は設定値。
+ *
+ * iOS Safariの speechSynthesis は
+ *  - 一時停止状態のまま固まって無音になる
+ *  - onend/onerror が発火せず進まなくなる
+ * ことがあるため、resume()の定期実行と、文の長さに応じた
+ * 番犬タイマー（時間切れで強制的に次へ）で自己回復させる。 */
+let speakSession = 0;       /* 世代トークン。古いタイマーが新しい再生を壊さないように */
+let currentUtterance = null; /* GCでonendが消える問題への参照保持 */
+let resumeTicker = null;
+
 function speak(items, onAllDone, rate) {
   if (!("speechSynthesis" in window) || !items.length) { if (onAllDone) onAllDone(); return; }
+  const session = ++speakSession;
   speechSynthesis.cancel();
+  clearInterval(resumeTicker);
+  /* 勝手にpausedになった読み上げを復帰させる保険 */
+  resumeTicker = setInterval(() => {
+    try { speechSynthesis.resume(); } catch (_) {}
+  }, 3000);
+
   let idx = 0;
+  let finished = false;
+  const finishAll = () => {
+    if (finished || session !== speakSession) return;
+    finished = true;
+    clearInterval(resumeTicker);
+    currentUtterance = null;
+    if (onAllDone) onAllDone();
+  };
+
   const next = () => {
-    if (idx >= items.length) { if (onAllDone) onAllDone(); return; }
+    if (finished || session !== speakSession) return;
+    if (idx >= items.length) { finishAll(); return; }
     const it = items[idx++];
     const isObj = typeof it === "object";
-    const u = new SpeechSynthesisUtterance(isObj ? it.text : it);
+    const text = isObj ? it.text : it;
+    const u = new SpeechSynthesisUtterance(text);
     u.lang = (isObj && it.lang) || "en-US";
     const v = pickVoice(u.lang);
     if (v) u.voice = v;
     u.rate = (isObj && it.rate) || rate || settings.rate;
-    u.onend = next;
-    u.onerror = next;
+
+    let advanced = false;
+    let guard = null;
+    const advance = () => {
+      if (advanced || session !== speakSession) return;
+      advanced = true;
+      clearTimeout(guard);
+      next();
+    };
+    u.onend = advance;
+    u.onerror = advance;
+    /* 番犬: 文字数から見積もった上限時間で強制前進（固まり対策） */
+    const estMs = Math.min(20000, 3000 + (text.length * 130) / (u.rate || 1));
+    guard = setTimeout(() => {
+      if (session !== speakSession) return;
+      try { speechSynthesis.cancel(); } catch (_) {}
+      advance();
+    }, estMs);
+
+    currentUtterance = u;
     speechSynthesis.speak(u);
+    try { speechSynthesis.resume(); } catch (_) {}
   };
-  next();
+
+  /* マイク停止直後の音声セッション切替と競合しないよう少し待つ */
+  setTimeout(next, 150);
 }
+
+/* 画面復帰時にpausedのまま固まっていたら復帰させる */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && "speechSynthesis" in window) {
+    try { speechSynthesis.resume(); } catch (_) {}
+  }
+});
 
 /* フィードバック読み上げ：認識を必ず停止してから話し、終了後に再開 */
 function speakFeedback(fb) {
@@ -829,6 +885,9 @@ function speakFeedback(fb) {
 }
 
 function stopSpeaking() {
+  speakSession++;              /* 進行中のspeak()の後続処理・番犬を無効化 */
+  clearInterval(resumeTicker);
+  currentUtterance = null;
   if ("speechSynthesis" in window) speechSynthesis.cancel();
 }
 
