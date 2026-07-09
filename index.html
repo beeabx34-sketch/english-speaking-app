@@ -360,7 +360,7 @@ const LANG_CODE = { en: "en-US", ja: "ja-JP" };
 
 const STATUS = {
   idle:       { icon: "🎤", label: "タップして話す",   sub: "英語で今の行動や気持ちを言ってみましょう", pulse: false },
-  listening:  { icon: "🟢", label: "聞き取り中…",     sub: "話し終えたらタップで確定", pulse: true },
+  listening:  { icon: "🟢", label: "聞き取り中…",     sub: "タップで確定・間違えたら“reset”でやり直し", pulse: true },
   processing: { icon: "⏳", label: "添削中…",         sub: "Claudeが英文をチェックしています", pulse: true },
   speaking:   { icon: "🔊", label: "読み上げ中…",     sub: "お手本を聞きましょう", pulse: true },
   shadowing:  { icon: "🔁", label: "シャドーイング",   sub: "お手本に続けて発音しましょう（“next”で次へ）", pulse: true },
@@ -374,8 +374,8 @@ function setState(next) {
   $("status-icon").classList.toggle("pulse", s.pulse);
   $("status-label").textContent = s.label;
   $("status-sub").textContent =
-    next === "listening" && lang === "ja" ? (handsFree ? "日本語でどうぞ。2秒黙ると自動で英訳します" : "言いたいことを日本語でどうぞ") :
-    next === "listening" && handsFree ? "2秒黙ると自動で確定します（“stop”で終了）" :
+    next === "listening" && lang === "ja" ? (handsFree ? "日本語でどうぞ。2秒黙ると自動で英訳（「やり直し」で言い直し）" : "言いたいことを日本語でどうぞ（「やり直し」で言い直し）") :
+    next === "listening" && handsFree ? "2秒黙ると自動で確定（“reset”でやり直し・“stop”で終了）" :
     next === "idle" && handsFree ? "ハンズフリー待機中" :
     next === "idle" && lang === "ja" ? "言いたいことを日本語で話すと英語表現を教えます" : s.sub;
   const mic = $("mic-btn");
@@ -542,6 +542,16 @@ function finalizeUtterance() {
   const cmd = text.toLowerCase().replace(/[.,!?。、！？\s]+$/g, "").trim();
   if (handsFree && (cmd === "stop" || cmd === "stop it" || cmd === "finish" || cmd === "ストップ" || cmd === "終了")) {
     exitHandsFree(true);
+    return;
+  }
+
+  /* 「reset」で言い直し（英作の途中で間違えたとき用）。
+   * 文末に reset を付けて言えば、それまでの内容を破棄して聞き取りをやり直す */
+  const cmdRaw = text.replace(/[.,!?。、！？\s]+$/g, "").trim();
+  if (cmd === "reset" || cmd.endsWith(" reset") || cmd.endsWith("scratch that") ||
+      cmdRaw.endsWith("リセット") || cmdRaw.endsWith("やり直し")) {
+    setState("speaking");
+    speak(["OK!"], () => beginListening());
     return;
   }
 
