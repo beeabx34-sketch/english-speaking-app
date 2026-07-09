@@ -819,6 +819,20 @@ let speakSession = 0;       /* 世代トークン。古いタイマーが新し�
 let currentUtterance = null; /* GCでonendが消える問題への参照保持 */
 let resumeTicker = null;
 
+/* iOSは「ユーザー操作の中で一度speak()しないと、その後の自動読み上げを
+ * 無音にする」ことがある。タップ時に無音のダミーを流してロックを解除する */
+let ttsPrimed = false;
+function primeTTS() {
+  if (ttsPrimed || !("speechSynthesis" in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    u.rate = 2;
+    speechSynthesis.speak(u);
+    ttsPrimed = true;
+  } catch (_) {}
+}
+
 function speak(items, onAllDone, rate) {
   if (!("speechSynthesis" in window) || !items.length) { if (onAllDone) onAllDone(); return; }
   const session = ++speakSession;
@@ -1191,6 +1205,7 @@ function exitHandsFree(sayBye) {
 }
 
 $("handsfree-toggle").addEventListener("change", (e) => {
+  primeTTS(); /* タップ操作の中で読み上げエンジンのロックを解除 */
   if (e.target.checked) enterHandsFree();
   else exitHandsFree(false);
 });
@@ -1221,6 +1236,7 @@ $("handsfree-toggle").addEventListener("change", (e) => {
  * ===================================================================== */
 $("mic-btn").addEventListener("click", () => {
   if (!SR) return;
+  primeTTS(); /* タップ操作の中で読み上げエンジンのロックを解除 */
   if (shadow) {
     /* シャドーイング中のタップ = "next" と同じ（次の録音へ） */
     beginListening();
