@@ -317,6 +317,14 @@
         </div>
       </div>
 
+      <div class="set-group">
+        <div class="set-title">読み上げの確認</div>
+        <div class="row-2">
+          <button class="ghost-btn" id="tts-test" style="flex:1">🔊 テスト音声を再生</button>
+        </div>
+        <div class="set-note" id="tts-note">音が出ないときは順に確認: ① マナーモード（本体横の消音スイッチ）をオフにする ※iPhoneの読み上げは消音中は鳴りません ② 音量を上げる ③ AirPodsの接続先を確認 ④ アプリを完全に閉じて開き直す</div>
+      </div>
+
       <div class="save-flash" id="save-flash">✓ 保存しました</div>
     </section>
   </main>
@@ -1356,6 +1364,23 @@ $("key-toggle").addEventListener("click", () => {
   const show = inp.type === "password";
   inp.type = show ? "text" : "password";
   $("key-toggle").textContent = show ? "隠す" : "表示";
+});
+
+/* 読み上げテスト（トラブル切り分け用） */
+$("tts-test").addEventListener("click", () => {
+  const note = $("tts-note");
+  const n = ("speechSynthesis" in window) ? speechSynthesis.getVoices().length : 0;
+  if (!("speechSynthesis" in window)) {
+    note.textContent = "⚠️ このブラウザは読み上げ（speechSynthesis）に対応していません。Safariで開いてください。";
+    return;
+  }
+  note.textContent = `再生中…（利用可能な音声: ${n}種類）。聞こえない場合: ① マナーモード（消音スイッチ）をオフ ② 音量を上げる ③ AirPodsの接続先を確認 ④ アプリを完全に閉じて開き直す`;
+  speak([
+    { text: "Hello! This is a test.", lang: "en-US" },
+    { text: "読み上げは正常です。", lang: "ja-JP", rate: 1.0 },
+  ], () => {
+    note.textContent = "テスト再生が完了しました。聞こえていれば読み上げ機能は正常です。聞こえなかった場合: ① マナーモード（消音スイッチ）をオフ ② 音量を上げる ③ AirPodsの接続先を確認 ④ アプリを完全に閉じて開き直す";
+  });
 });
 
 function initSeg(segId, attr, current, apply) {
