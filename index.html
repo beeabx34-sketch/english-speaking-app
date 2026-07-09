@@ -193,12 +193,22 @@
   }
   .seg button.on { background: var(--accent); color: #fff; }
   .row-2 { display: flex; gap: 8px; align-items: center; }
-  .lang-seg { width: 250px; }
-  .lang-seg button { font-size: 13px; padding: 8px 0; }
+  .lang-seg { width: 300px; }
+  .lang-seg button { font-size: 12.5px; padding: 8px 0; }
+  #question-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px 14px 10px; margin-bottom: 10px;
+  }
+  .q-ja { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
   .ghost-btn {
     padding: 11px 14px; font-size: 14px; font-weight: 600; border: 1px solid var(--line);
     border-radius: 10px; background: var(--card); color: var(--accent); cursor: pointer; flex: none;
   }
+  .cmd-table { border-collapse: collapse; width: 100%; }
+  .cmd-table td { padding: 7px 0; font-size: 13px; line-height: 1.55; vertical-align: top; border-bottom: 1px dashed var(--line); }
+  .cmd-table tr:last-child td { border-bottom: none; }
+  .cmd-table .cmd { font-family: Georgia, serif; font-weight: 700; color: var(--accent); white-space: nowrap; padding-right: 12px; }
+  .cmd-sub { font-size: 11px; color: var(--ink-soft); }
   .save-flash { font-size: 12px; color: var(--accent); margin-top: 6px; visibility: hidden; }
   .save-flash.show { visibility: visible; }
 
@@ -243,6 +253,8 @@
 
       <div class="error-banner" id="error-banner"></div>
 
+      <div id="question-card" style="display:none"></div>
+
       <div class="transcript" id="transcript">
         <span class="placeholder">ここに認識された英語が表示されます</span>
       </div>
@@ -251,8 +263,9 @@
 
       <div class="bottom-area">
         <div class="seg lang-seg" id="lang-seg">
-          <button data-lang="en" class="on">英語で話す</button>
-          <button data-lang="ja">日本語でヘルプ</button>
+          <button data-lang="en" class="on">英作文</button>
+          <button data-lang="ja">日本語ヘルプ</button>
+          <button data-lang="talk">会話</button>
         </div>
         <label class="handsfree-row">
           ハンズフリー
@@ -318,6 +331,15 @@
       </div>
 
       <div class="set-group">
+        <div class="set-title">音声コマンド一覧</div>
+        <table class="cmd-table">
+          <tr><td class="cmd">“reset”</td><td>言い直し。聞き取り中に文末に付けて言うと、それまでの内容を破棄して聞き取りをやり直す<br><span class="cmd-sub">（“scratch that”／日本語ヘルプ中は「やり直し」「リセット」でも可）</span></td></tr>
+          <tr><td class="cmd">“next”</td><td>シャドーイングを終えて、次の文の聞き取りへ進む<br><span class="cmd-sub">（マイクボタンのタップでも同じ）</span></td></tr>
+          <tr><td class="cmd">“stop”</td><td>練習を終了する。聞き取り中・シャドーイング中いつでも使え、ハンズフリーも解除される<br><span class="cmd-sub">（“finish”／「ストップ」「終了」でも可）</span></td></tr>
+        </table>
+      </div>
+
+      <div class="set-group">
         <div class="set-title">読み上げの確認</div>
         <div class="row-2">
           <button class="ghost-btn" id="tts-test" style="flex:1">🔊 テスト音声を再生</button>
@@ -362,9 +384,58 @@ let settings = store.getSettings();
 /* idle | listening | processing | speaking */
 let state = "idle";
 let handsFree = false;
-/* 入力モード: "en"=英語で話して添削 / "ja"=日本語で言いたいことを話して英訳 */
+/* 入力モード: "en"=英語で話して添削 / "ja"=日本語で言いたいことを話して英訳 / "talk"=会話モード */
 let lang = "en";
-const LANG_CODE = { en: "en-US", ja: "ja-JP" };
+const LANG_CODE = { en: "en-US", ja: "ja-JP", talk: "en-US" };
+
+/* ---------- 会話モードの状態 ---------- */
+let currentQuestion = null;  /* {q, ja} いまの質問 */
+let convHistory = [];        /* 直近の {q, a} を最大6件 */
+
+const STARTER_QUESTIONS = [
+  ["What did you do this morning?", "今朝は何をしましたか？"],
+  ["What are you going to eat for dinner tonight?", "今夜の夕食は何を食べる予定ですか？"],
+  ["How's the weather over there today?", "そちらの今日の天気はどうですか？"],
+  ["What do you usually do on weekends?", "週末はいつも何をしていますか？"],
+  ["What's your favorite way to relax?", "お気に入りのリラックス方法は何ですか？"],
+  ["Did anything good happen this week?", "今週なにか良いことはありましたか？"],
+  ["What kind of food do you like?", "どんな食べ物が好きですか？"],
+  ["What are your plans for tomorrow?", "明日の予定は何ですか？"],
+  ["What did you watch or read recently?", "最近なにを見たり読んだりしましたか？"],
+  ["Where do you want to travel someday?", "いつか旅行してみたい場所はどこですか？"],
+  ["What time did you get up today?", "今日は何時に起きましたか？"],
+  ["What's something you're looking forward to?", "いま楽しみにしていることは何ですか？"],
+];
+
+function ensureQuestion() {
+  if (!currentQuestion) {
+    const s = STARTER_QUESTIONS[Math.floor(Math.random() * STARTER_QUESTIONS.length)];
+    currentQuestion = { q: s[0], ja: s[1] };
+  }
+}
+
+function renderQuestionCard(label) {
+  const el = $("question-card");
+  if (lang !== "talk" || !currentQuestion) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.innerHTML = "";
+  const l = document.createElement("div");
+  l.className = "fb-label";
+  l.textContent = label || "🗨️ 質問";
+  el.append(l, enRow(currentQuestion.q));
+  if (currentQuestion.ja) {
+    const j = document.createElement("div");
+    j.className = "q-ja";
+    j.textContent = currentQuestion.ja;
+    el.append(j);
+  }
+}
+
+function resetConversation() {
+  convHistory = [];
+  currentQuestion = null;
+  $("question-card").style.display = "none";
+}
 
 const STATUS = {
   idle:       { icon: "🎤", label: "タップして話す",   sub: "英語で今の行動や気持ちを言ってみましょう", pulse: false },
@@ -383,9 +454,11 @@ function setState(next) {
   $("status-label").textContent = s.label;
   $("status-sub").textContent =
     next === "listening" && lang === "ja" ? (handsFree ? "日本語でどうぞ。2秒黙ると自動で英訳（「やり直し」で言い直し）" : "言いたいことを日本語でどうぞ（「やり直し」で言い直し）") :
+    next === "listening" && lang === "talk" ? (handsFree ? "質問に英語で答えて。2秒黙ると確定（reset/stop可）" : "質問に英語で答えて、タップで確定") :
     next === "listening" && handsFree ? "2秒黙ると自動で確定（“reset”でやり直し・“stop”で終了）" :
     next === "idle" && handsFree ? "ハンズフリー待機中" :
-    next === "idle" && lang === "ja" ? "言いたいことを日本語で話すと英語表現を教えます" : s.sub;
+    next === "idle" && lang === "ja" ? "言いたいことを日本語で話すと英語表現を教えます" :
+    next === "idle" && lang === "talk" ? "会話モード：マイクをタップすると質問から始まります" : s.sub;
   const mic = $("mic-btn");
   mic.classList.toggle("listening", next === "listening");
   mic.disabled = (next === "processing");
@@ -532,6 +605,18 @@ function beginListening() {
   clearBuffers();
   updateTranscript();
   $("feedback").innerHTML = "";
+
+  /* 会話モード: 質問を読み上げてから聞き取りを始める */
+  if (lang === "talk") {
+    ensureQuestion();
+    renderQuestionCard();
+    setState("speaking");
+    speak([currentQuestion.q], () => {
+      if (state === "speaking") { setState("listening"); startRecognition(); }
+    });
+    return;
+  }
+
   setState("listening");
   startRecognition();
 }
@@ -546,10 +631,15 @@ function finalizeUtterance() {
     return;
   }
 
-  /* 音声コマンドでハンズフリー終了 */
+  /* 音声コマンドで終了（ハンズフリーでも手動でも） */
   const cmd = text.toLowerCase().replace(/[.,!?。、！？\s]+$/g, "").trim();
-  if (handsFree && (cmd === "stop" || cmd === "stop it" || cmd === "finish" || cmd === "ストップ" || cmd === "終了")) {
-    exitHandsFree(true);
+  if (cmd === "stop" || cmd === "stop it" || cmd === "finish" || cmd === "ストップ" || cmd === "終了") {
+    if (handsFree) {
+      exitHandsFree(true);
+    } else {
+      setState("idle");
+      updateTranscriptIdle();
+    }
     return;
   }
 
@@ -596,6 +686,28 @@ function systemPrompt(mode) {
 - 直訳ではなく、ネイティブが実際の会話で使う言い方にすること。`;
   }
 
+  if (mode === "talk") {
+    return `あなたは日本人学習者の英会話パートナー兼コーチです。あなたが英語で質問し、学習者が英語で答える会話練習をしています。「あなたの質問」と「学習者の回答（音声認識の結果）」、それまでの会話履歴が与えられます。回答へのフィードバックと、会話を続けるための次の質問を返してください。励ましすぎず、率直で的確に。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
+
+必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
+
+{
+  "praise": "回答の英文の出来に応じた英語のひとこと評価（Perfect!/Excellent!/Good!/Nice try! など。出来に応じて正直に）",
+  "meaning_ja": "学習者の回答（聞き取られた英文）をそのまま忠実に日本語訳した1文",
+  "correct": true または false（文法的に通じるか）,
+  "corrected": "誤りがあれば修正した英文。なければ元の文のまま",
+  "natural": ["ネイティブならこう答える、というより自然な表現。1〜2案の配列"],
+  "explanation": "日本語での解説。${detail}",
+  "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（なければ空文字）",
+  "next_question": "会話を続ける次の英語の質問。回答の内容に自然につながるフォローアップを優先し、同じ話題が続いたら新しい身近な話題へ。短くシンプルな1文（中学英語レベル）",
+  "next_question_ja": "next_questionの日本語訳"
+}
+
+注意:
+- 回答は音声認識の結果なので、誤変換と思われる場合は意図を推測して添削すること。
+- 質問攻めにならないよう、next_questionは1つだけ。学習者が答えやすい具体的な質問にすること。`;
+  }
+
   return `あなたは日本人学習者向けの英会話コーチです。学習者が音声入力で話した英文が与えられます。励ましすぎず、率直で的確なフィードバックをしてください。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
 
 必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
@@ -617,6 +729,14 @@ function systemPrompt(mode) {
 
 async function callClaude(text, mode) {
   const apiKey = store.getKey();
+  /* 会話モードでは質問と会話履歴を文脈として渡す */
+  let content = text;
+  if (mode === "talk") {
+    const hist = convHistory.map(h => `Q: ${h.q}\nA: ${h.a}`).join("\n");
+    content = (hist ? "これまでの会話:\n" + hist + "\n\n" : "")
+      + "あなたの質問: " + (currentQuestion ? currentQuestion.q : "")
+      + "\n学習者の回答: " + text;
+  }
   const res = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -629,7 +749,7 @@ async function callClaude(text, mode) {
       model: MODELS[settings.model] || MODELS.sonnet,
       max_tokens: 1024,
       system: systemPrompt(mode),
-      messages: [{ role: "user", content: text }],
+      messages: [{ role: "user", content }],
     }),
   });
 
@@ -651,6 +771,8 @@ async function callClaude(text, mode) {
   fb.natural = Array.isArray(fb.natural) ? fb.natural : (fb.natural ? [String(fb.natural)] : []);
   fb.praise = typeof fb.praise === "string" ? fb.praise.trim() : "";
   fb.meaning_ja = typeof fb.meaning_ja === "string" ? fb.meaning_ja.trim() : "";
+  fb.next_question = typeof fb.next_question === "string" ? fb.next_question.trim() : "";
+  fb.next_question_ja = typeof fb.next_question_ja === "string" ? fb.next_question_ja.trim() : "";
   return fb;
 }
 
@@ -689,8 +811,20 @@ async function submit(text) {
     return;
   }
 
+  const answeredQ = (mode === "talk" && currentQuestion) ? currentQuestion.q : "";
   renderFeedback(text, fb, mode);
-  saveToHistory(text, fb, mode);
+  saveToHistory(text, fb, mode, answeredQ);
+
+  /* 会話モード: 履歴に積んで、次の質問を用意 */
+  if (mode === "talk") {
+    convHistory.push({ q: answeredQ, a: text });
+    if (convHistory.length > 6) convHistory.shift();
+    currentQuestion = fb.next_question
+      ? { q: fb.next_question, ja: fb.next_question_ja }
+      : null; /* 無ければ次回スターターから */
+    renderQuestionCard("🗨️ 次の質問");
+  }
+
   speakFeedback(fb);
 }
 
@@ -1104,7 +1238,10 @@ function finalizeShadowAttempt() {
 
   const target = shadowTargetText();
   const { tWords, miss } = diffTarget(target, attempt);
-  const ok = miss.length === 0 || (tWords.length >= 6 && miss.length <= 1);
+  /* 合格基準（発音判定は認識ベースの近似なので、詰まらないよう寛容に）:
+   * 3語以下=完全一致 / 4〜8語=1語まで / 9語以上=2語までのミスを許容 */
+  const allow = tWords.length >= 9 ? 2 : tWords.length >= 4 ? 1 : 0;
+  const ok = miss.length <= allow;
 
   if (ok) {
     shadow.lastMiss = [];
@@ -1113,32 +1250,26 @@ function finalizeShadowAttempt() {
       /* 部分練習クリア → いまのチャンク（または全体）をもう一度 */
       shadow.practice = null;
       shadowPlay(false, "Nice!");
-    } else if (shadow.chunks.length > 1 && shadow.stage < shadow.chunks.length - 1) {
-      /* チャンククリア → 次のチャンクへ */
-      shadow.stage++;
-      shadowPlay(false, "Good!");
-    } else if (shadow.chunks.length > 1 && shadow.stage === shadow.chunks.length - 1) {
-      /* 全チャンク制覇 → 全体を通しで */
-      shadow.stage = shadow.chunks.length;
-      shadowPlay(false, "Good! Now all together.");
     } else {
-      /* 全体（または短文）が言えた → ほめて、もう一周（"next"と言うまで繰り返し） */
-      shadowPlay(false, "Good!");
+      shadowAdvance("Good!");
     }
     return;
   }
 
-  /* 言えていない部分を切り出して、ゆっくり部分練習 */
   shadow.lastMiss = miss.map(i => tWords[i]);
   renderShadowView(attempt, shadow.lastMiss);
   shadow.missAttempts++;
-  if (shadow.missAttempts > 3) {
-    /* 3回続けて合わなければ、いまのチャンクをゆっくり再生して仕切り直し */
+
+  /* 同じ箇所で3回つまずいたら、頑張りを認めて先へ進む（詰まり防止） */
+  if (shadow.missAttempts >= 3) {
     shadow.practice = null;
     shadow.missAttempts = 0;
-    shadowPlay(true);
+    shadow.lastMiss = [];
+    shadowAdvance("Almost! Let's keep going.");
     return;
   }
+
+  /* 言えていない部分を切り出して、ゆっくり部分練習 */
   const runStart = miss[0];
   let runEnd = runStart;
   for (let k = 1; k < miss.length && miss[k] === miss[k - 1] + 1; k++) runEnd = miss[k];
@@ -1146,6 +1277,20 @@ function finalizeShadowAttempt() {
   const e = Math.min(tWords.length, runEnd + 2);
   shadow.practice = tWords.slice(s, e).join(" ");
   shadowPlay(true);
+}
+
+/* 現在のステージをクリアした（または見なした）ときの前進処理 */
+function shadowAdvance(prefix) {
+  if (!shadow) return;
+  if (shadow.chunks.length > 1 && shadow.stage < shadow.chunks.length - 1) {
+    shadow.stage++;                       /* 次のチャンクへ */
+    shadowPlay(false, prefix);
+  } else if (shadow.chunks.length > 1 && shadow.stage === shadow.chunks.length - 1) {
+    shadow.stage = shadow.chunks.length;  /* 全チャンク終了 → 全体通し */
+    shadowPlay(false, prefix + " Now all together.");
+  } else {
+    shadowPlay(false, prefix);            /* 全体（短文）→ もう一周 */
+  }
 }
 
 function exitShadow() {
@@ -1216,17 +1361,21 @@ $("handsfree-toggle").addEventListener("change", (e) => {
 [...$("lang-seg").children].forEach(btn => {
   btn.addEventListener("click", () => {
     if (btn.dataset.lang === lang) return;
+    const wasTalk = lang === "talk";
     lang = btn.dataset.lang;
     [...$("lang-seg").children].forEach(b => b.classList.toggle("on", b === btn));
+    if (wasTalk && lang !== "talk") resetConversation(); /* 会話モードを離れたら会話をリセット */
     if (shadow) { beginListening(); return; } /* シャドーイング中の切替は新モードで録音へ */
     if (rec) rec.lang = LANG_CODE[lang];
     if (state === "listening") {
+      if (lang === "talk") { beginListening(); return; } /* 会話モードへ切替→質問から */
       /* 聞き取り中なら新しい言語で聞き直す */
       stopRecognition();
       clearBuffers();
       updateTranscript();
       startRecognition();
     }
+    if (lang !== "talk") $("question-card").style.display = "none";
     setState(state); /* 案内文を更新 */
   });
 });
@@ -1248,7 +1397,13 @@ $("mic-btn").addEventListener("click", () => {
     finalizeUtterance();
   } else if (state === "speaking") {
     stopSpeaking();
-    afterFeedbackDone();
+    if (lang === "talk") {
+      /* 会話モードで質問の読み上げ中にタップ → すぐ聞き取りへ */
+      setState("listening");
+      startRecognition();
+    } else {
+      afterFeedbackDone();
+    }
   }
   /* processing中は無効化済み */
 });
@@ -1256,12 +1411,13 @@ $("mic-btn").addEventListener("click", () => {
 /* =====================================================================
  * 履歴
  * ===================================================================== */
-function saveToHistory(spoken, fb, mode) {
+function saveToHistory(spoken, fb, mode, question) {
   const h = store.getHistory();
   h.unshift({
     id: Date.now() + "_" + Math.random().toString(36).slice(2, 7),
     ts: Date.now(),
     mode: mode || "en",
+    question: question || "",
     spoken,
     meaning_ja: fb.meaning_ja || "",
     praise: fb.praise || "",
@@ -1297,7 +1453,8 @@ function renderHistory() {
     head.className = "hist-date";
     const dateSpan = document.createElement("span");
     dateSpan.textContent = fmtDate(item.ts)
-      + (item.mode === "ja" ? "　💡日本語→英語" : (item.correct ? "　✓" : "　✗"))
+      + (item.mode === "ja" ? "　💡日本語→英語" : item.mode === "talk" ? "　🗨️会話" : "")
+      + (item.mode !== "ja" ? (item.correct ? "　✓" : "　✗") : "")
       + (item.praise ? "　" + item.praise : "");
     const del = document.createElement("button");
     del.className = "hist-del";
@@ -1309,6 +1466,12 @@ function renderHistory() {
     head.append(dateSpan, del);
     el.append(head);
 
+    if (item.question) {
+      const q = document.createElement("div");
+      q.className = "hist-meaning";
+      q.textContent = "Q: " + item.question;
+      el.append(q);
+    }
     const spoken = document.createElement("div");
     spoken.className = "hist-spoken";
     spoken.textContent = item.spoken;
