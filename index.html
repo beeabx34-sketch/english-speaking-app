@@ -144,6 +144,19 @@
   .switch input:checked + .knob { background: var(--accent); }
   .switch input:checked + .knob::after { transform: translateX(20px); }
 
+  .mic-row { display: flex; align-items: center; justify-content: center; gap: 22px; }
+  .side-slot { width: 60px; display: flex; justify-content: center; }
+  #stop-btn {
+    width: 58px; height: 58px; border-radius: 50%;
+    border: 1.5px solid #d8b0a4; background: var(--card); color: var(--danger);
+    font-size: 19px; line-height: 1.1; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(164,71,47,.18);
+    transition: transform .1s, opacity .2s;
+  }
+  #stop-btn:active { transform: scale(.92); }
+  #stop-btn:disabled { opacity: .35; box-shadow: none; cursor: default; }
+  #stop-btn .stop-label { font-size: 10px; font-weight: 700; }
   #mic-btn {
     width: 92px; height: 92px; border-radius: 50%; border: none;
     background: var(--accent); color: #fff; font-size: 40px; cursor: pointer;
@@ -274,7 +287,13 @@
             <span class="knob"></span>
           </span>
         </label>
-        <button id="mic-btn" aria-label="マイク">🎤</button>
+        <div class="mic-row">
+          <span class="side-slot"></span>
+          <button id="mic-btn" aria-label="マイク">🎤</button>
+          <span class="side-slot">
+            <button id="stop-btn" aria-label="終了" disabled>⏹<span class="stop-label">終了</span></button>
+          </span>
+        </div>
         <span class="mic-hint" id="mic-hint">タップで録音開始 → もう一度タップで確定</span>
       </div>
     </section>
@@ -462,6 +481,7 @@ function setState(next) {
   const mic = $("mic-btn");
   mic.classList.toggle("listening", next === "listening");
   mic.disabled = (next === "processing");
+  $("stop-btn").disabled = (next === "idle" && !handsFree);
   mic.textContent = next === "listening" ? "⏹" : next === "speaking" ? "🔇" : next === "shadowing" ? "⏭" : "🎤";
   $("mic-hint").textContent =
     next === "listening" ? (handsFree ? "話し終えると自動で添削されます" : "もう一度タップで確定") :
@@ -776,6 +796,8 @@ async function callClaude(text, mode) {
   return fb;
 }
 
+let submitSession = 0;
+
 async function submit(text) {
   if (!store.getKey()) {
     showError("APIキーが設定されていません。「設定」タブで Anthropic APIキーを入力してください。", true);
@@ -791,11 +813,13 @@ async function submit(text) {
   }
 
   const mode = lang;
+  const session = ++submitSession; /* 終了ボタンで結果を破棄できるように */
   setState("processing");
   let fb;
   try {
     fb = await callClaude(text, mode);
   } catch (err) {
+    if (session !== submitSession) return; /* 終了済みなら黙って破棄 */
     if (err.status === 401 || err.status === 403) {
       showError("APIキーが正しくないようです。「設定」タブでキーを確認してください。", true);
     } else if (err.status === 429) {
@@ -810,6 +834,7 @@ async function submit(text) {
     afterFeedbackDone();
     return;
   }
+  if (session !== submitSession) return; /* 添削中に終了ボタンが押された */
 
   const answeredQ = (mode === "talk" && currentQuestion) ? currentQuestion.q : "";
   renderFeedback(text, fb, mode);
@@ -1353,6 +1378,28 @@ $("handsfree-toggle").addEventListener("change", (e) => {
   primeTTS(); /* タップ操作の中で読み上げエンジンのロックを解除 */
   if (e.target.checked) enterHandsFree();
   else exitHandsFree(false);
+});
+
+/* =====================================================================
+ * 終了ボタン: どの場面でも一発で待機状態に戻す
+ * ===================================================================== */
+function stopEverything() {
+  submitSession++;          /* 進行中の添削結果を破棄 */
+  if (shadow) exitShadow();
+  if (handsFree) {
+    exitHandsFree(true);    /* 内部で認識・読み上げ停止＆idle化 */
+    return;
+  }
+  stopRecognition();
+  stopSpeaking();
+  clearBuffers();
+  setState("idle");
+  updateTranscriptIdle();
+  $("status-sub").textContent = "練習を終了しました";
+}
+$("stop-btn").addEventListener("click", () => {
+  primeTTS();
+  stopEverything();
 });
 
 /* =====================================================================
