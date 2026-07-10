@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ほいくショート — インスタ動画メーカー</title>
+</head>
+<body>
+<style>
+:root{
+  --bg:#FBF6F0; --card:#FFFFFF; --ink:#33261F; --sub:#8A7566; --line:#EADFD4;
+  --accent:#E85D4A; --accent-ink:#FFFFFF; --accent-soft:#FCEAE4;
+  --teal:#3E8F8C; --teal-soft:#E3F1EF;
+  --danger:#C24141; --radius:14px;
+  --shadow:0 2px 10px rgba(60,40,25,.07);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#191412; --card:#241D19; --ink:#F3E9E1; --sub:#B09C8D; --line:#3B2F28;
+    --accent:#F0715E; --accent-ink:#241512; --accent-soft:#3A241E;
+    --teal:#5FB3AF; --teal-soft:#1E3230; --danger:#E07B7B;
+    --shadow:0 2px 10px rgba(0,0,0,.35); }
+}
+:root[data-theme="dark"]{ --bg:#191412; --card:#241D19; --ink:#F3E9E1; --sub:#B09C8D; --line:#3B2F28;
+  --accent:#F0715E; --accent-ink:#241512; --accent-soft:#3A241E;
+  --teal:#5FB3AF; --teal-soft:#1E3230; --danger:#E07B7B;
+  --shadow:0 2px 10px rgba(0,0,0,.35); }
+:root[data-theme="light"]{ --bg:#FBF6F0; --card:#FFFFFF; --ink:#33261F; --sub:#8A7566; --line:#EADFD4;
+  --accent:#E85D4A; --accent-ink:#FFFFFF; --accent-soft:#FCEAE4;
+  --teal:#3E8F8C; --teal-soft:#E3F1EF; --danger:#C24141;
+  --shadow:0 2px 10px rgba(60,40,25,.07); }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);
+  font-family:'Hiragino Maru Gothic ProN','Hiragino Sans','BIZ UDPGothic','Noto Sans JP',sans-serif;
+  margin:0;line-height:1.65;}
+#app{max-width:860px;margin:0 auto;padding:20px 16px 80px;}
+header.top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:8px 0 18px;}
+header.top h1{font-size:26px;font-weight:800;margin:0;letter-spacing:.02em;}
+header.top h1 .dot{color:var(--accent);}
+header.top p{margin:0;color:var(--sub);font-size:13px;}
+
+.steps{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding-bottom:4px;}
+.steps button{flex:1;min-width:96px;border:1.5px solid var(--line);background:var(--card);color:var(--sub);
+  border-radius:999px;padding:9px 10px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;
+  font-family:inherit;transition:border-color .15s,color .15s;}
+.steps button .n{display:inline-block;width:20px;height:20px;border-radius:50%;background:var(--line);
+  color:var(--ink);font-size:12px;line-height:20px;text-align:center;margin-right:6px;}
+.steps button.active{border-color:var(--accent);color:var(--ink);}
+.steps button.active .n{background:var(--accent);color:var(--accent-ink);}
+.steps button:focus-visible{outline:2px solid var(--teal);outline-offset:2px;}
+
+section.step{display:none;}
+section.step.show{display:block;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:20px;margin-bottom:16px;}
+.card h2{font-size:17px;margin:0 0 4px;}
+.card p.hint{color:var(--sub);font-size:13px;margin:0 0 14px;}
+.note{background:var(--teal-soft);border-radius:10px;padding:10px 14px;font-size:13px;color:var(--ink);margin-top:12px;}
+
+.btn{border:none;border-radius:10px;padding:11px 18px;font-size:14px;font-weight:700;cursor:pointer;
+  font-family:inherit;background:var(--accent);color:var(--accent-ink);}
+.btn.secondary{background:var(--card);color:var(--ink);border:1.5px solid var(--line);}
+.btn.teal{background:var(--teal);color:#fff;}
+.btn.small{padding:6px 12px;font-size:12.5px;border-radius:8px;}
+.btn:disabled{opacity:.45;cursor:default;}
+.btn:focus-visible{outline:2px solid var(--teal);outline-offset:2px;}
+.navrow{display:flex;justify-content:space-between;gap:10px;margin-top:4px;}
+
+#dropzone{border:2px dashed var(--line);border-radius:var(--radius);padding:34px 16px;text-align:center;
+  color:var(--sub);cursor:pointer;transition:border-color .15s,background .15s;background:var(--card);}
+#dropzone.drag{border-color:var(--accent);background:var(--accent-soft);}
+#dropzone strong{color:var(--ink);display:block;font-size:15px;margin-bottom:4px;}
+
+#slideList{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
+.slideItem{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:10px;}
+.slideItem img,.slideItem canvas{width:64px;height:96px;object-fit:cover;border-radius:8px;background:#0002;flex:none;}
+.slideItem .meta{flex:1;min-width:0;font-size:13px;}
+.slideItem .meta .name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.slideItem .meta .kind{color:var(--sub);font-size:12px;}
+.slideItem label{font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px;}
+.slideItem input[type=number]{width:64px;padding:5px 6px;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg);color:var(--ink);font-family:inherit;font-size:13px;}
+.slideItem .ops{display:flex;gap:4px;}
+.iconbtn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;
+  width:30px;height:30px;cursor:pointer;font-size:14px;line-height:1;font-family:inherit;}
+.iconbtn.del{color:var(--danger);}
+.iconbtn:focus-visible{outline:2px solid var(--teal);outline-offset:1px;}
+
+textarea,input[type=text]{width:100%;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;
+  font-family:inherit;font-size:14px;background:var(--card);color:var(--ink);}
+textarea:focus,input[type=text]:focus{outline:none;border-color:var(--teal);}
+textarea{min-height:96px;resize:vertical;}
+.field{margin-bottom:14px;}
+.field>label{display:block;font-size:13px;font-weight:700;margin-bottom:6px;}
+.genrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 4px;}
+#capEdits{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+.capEdit{display:flex;gap:10px;align-items:center;font-size:13px;}
+.capEdit .idx{flex:none;width:26px;height:26px;border-radius:50%;background:var(--teal-soft);color:var(--teal);
+  font-weight:800;text-align:center;line-height:26px;font-size:12px;}
+.capEdit input{flex:1;}
+
+.themeGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:6px;}
+.themeCard{border:2px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;background:var(--card);text-align:left;font-family:inherit;color:var(--ink);}
+.themeCard.active{border-color:var(--accent);background:var(--accent-soft);}
+.themeCard .sw{display:flex;gap:4px;margin-bottom:8px;}
+.themeCard .sw i{width:18px;height:18px;border-radius:50%;display:block;}
+.themeCard .tn{font-weight:800;font-size:14px;}
+.themeCard .td{font-size:12px;color:var(--sub);}
+.selRow{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;}
+.selRow .field{flex:1;min-width:160px;margin-bottom:0;}
+select{width:100%;border:1.5px solid var(--line);border-radius:10px;padding:9px 10px;font-family:inherit;
+  font-size:14px;background:var(--card);color:var(--ink);}
+
+.blurWrap{display:flex;gap:18px;flex-wrap:wrap;}
+.blurCanvasBox{flex:none;}
+#blurCanvas{border-radius:12px;background:#0003;cursor:crosshair;display:block;max-width:100%;touch-action:none;}
+.blurSide{flex:1;min-width:220px;font-size:13.5px;}
+#blurThumbs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+#blurThumbs button{border:2px solid var(--line);border-radius:8px;padding:0;cursor:pointer;background:none;overflow:hidden;width:44px;height:66px;}
+#blurThumbs button.active{border-color:var(--accent);}
+#blurThumbs img,#blurThumbs canvas{width:100%;height:100%;object-fit:cover;display:block;}
+.blurCtl{margin-top:10px;}
+.blurCtl label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:4px;}
+input[type=range]{width:100%;accent-color:var(--accent);}
+
+.finalWrap{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;}
+#stageBox{flex:none;position:relative;}
+#stage{width:280px;height:auto;border-radius:16px;display:block;background:#000;box-shadow:var(--shadow);}
+.finalSide{flex:1;min-width:250px;}
+#exportBar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin:10px 0;display:none;}
+#exportBar i{display:block;height:100%;background:var(--accent);width:0%;}
+#dlArea{margin-top:10px;}
+#dlArea a{display:inline-block;background:var(--teal);color:#fff;text-decoration:none;font-weight:700;
+  border-radius:10px;padding:11px 18px;font-size:14px;}
+#postCaption{min-height:150px;font-size:13px;}
+.muted{color:var(--sub);font-size:12.5px;}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+
+<div id="app">
+  <header class="top">
+    <h1>ほいくショート<span class="dot">.</span></h1>
+    <p>写真・動画とひとこと説明から、高校生に届くリール動画をつくる</p>
+  </header>
+
+  <nav class="steps" aria-label="手順">
+    <button data-step="1" class="active"><span class="n">1</span>素材</button>
+    <button data-step="2"><span class="n">2</span>文章</button>
+    <button data-step="3"><span class="n">3</span>デコ</button>
+    <button data-step="4"><span class="n">4</span>ぼかし</button>
+    <button data-step="5"><span class="n">5</span>書き出し</button>
+  </nav>
+
+  <!-- STEP 1 -->
+  <section class="step show" data-step="1">
+    <div class="card">
+      <h2>写真・動画を追加</h2>
+      <p class="hint">授業や行事の写真・動画をまとめて選べます。順番はあとから入れ替えできます。</p>
+      <div id="dropzone" role="button" tabindex="0">
+        <strong>ここをクリック、またはファイルをドラッグ</strong>
+        写真（JPG / PNG）と動画（MP4 / MOV など）に対応
+      </div>
+      <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+      <div id="slideList"></div>
+      <div class="note">📱 ファイルはこの端末のブラウザ内だけで処理され、外部には送信されません。</div>
+    </div>
+    <div class="navrow"><span></span><button class="btn" data-go="2">つぎへ：文章 →</button></div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="step" data-step="2">
+    <div class="card">
+      <h2>説明文からコメントを自動生成</h2>
+      <p class="hint">どんな授業・行事の写真かを普通の文章で書くだけでOK。タイトル・各カットのコメント・締めの一言をまとめて作ります。</p>
+      <div class="field">
+        <label for="descInput">説明文</label>
+        <textarea id="descInput" placeholder="例）今日は音楽の授業でした。ピアノの弾き歌いを練習しています。みんな最初は緊張していたけど、最後は笑顔で歌えるようになりました。"></textarea>
+      </div>
+      <div class="genrow">
+        <button class="btn teal" id="genBtn">✍️ 文章を自動生成</button>
+        <button class="btn secondary" id="regenBtn">↻ 別パターン</button>
+        <span class="muted" id="patLabel"></span>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label for="titleInput">オープニングの一言（高校生向けフック）</label>
+        <input type="text" id="titleInput" placeholder="自動生成されます。手で直してもOK">
+      </div>
+      <div id="capEdits"></div>
+      <div class="field" style="margin-top:14px">
+        <label for="outroInput">ラストの一言（CTA）</label>
+        <input type="text" id="outroInput" placeholder="例）続きはオープンキャンパスで💫">
+      </div>
+    </div>
+    <div class="navrow"><button class="btn secondary" data-go="1">← もどる</button><button class="btn" data-go="3">つぎへ：デコ →</button></div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="step" data-step="3">
+    <div class="card">
+      <h2>デコレーションのパターン</h2>
+      <p class="hint">テーマ × 動き × 切り替えの組み合わせで雰囲気が変わります。「おまかせガチャ」で全部ランダムに組み替えられます。</p>
+      <div class="themeGrid" id="themeGrid"></div>
+      <div class="selRow">
+        <div class="field">
+          <label for="motionSel">写真の動き</label>
+          <select id="motionSel">
+            <option value="mix">ミックス（おすすめ）</option>
+            <option value="in">ズームイン</option>
+            <option value="out">ズームアウト</option>
+            <option value="left">よこ流れ ←</option>
+            <option value="right">よこ流れ →</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="transSel">カットの切り替え</label>
+          <select id="transSel">
+            <option value="fade">ふわっとフェード</option>
+            <option value="slide">スライド</option>
+            <option value="wipe">ワイプ</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label for="labelInput">画面上部のラベル（学校名など・空欄で非表示）</label>
+        <input type="text" id="labelInput" value="○○短期大学 こども学科">
+      </div>
+      <div class="genrow" style="margin-top:8px">
+        <button class="btn" id="gachaBtn">🎲 おまかせガチャ（全部シャッフル）</button>
+      </div>
+    </div>
+    <div class="navrow"><button class="btn secondary" data-go="2">← もどる</button><button class="btn" data-go="4">つぎへ：ぼかし →</button></div>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="step" data-step="4">
+    <div class="card">
+      <h2>写ってはいけない人にぼかしを入れる</h2>
+      <p class="hint">画像をクリックするとぼかし円が追加されます。円はドラッグで移動、スライダーで大きさを調整できます。</p>
+      <div id="blurThumbs"></div>
+      <div class="blurWrap">
+        <div class="blurCanvasBox"><canvas id="blurCanvas" width="10" height="10"></canvas></div>
+        <div class="blurSide">
+          <div class="blurCtl">
+            <label for="blurSize">選択中のぼかしの大きさ</label>
+            <input type="range" id="blurSize" min="3" max="30" value="9" disabled>
+          </div>
+          <div class="genrow" style="margin-top:8px">
+            <button class="btn secondary small" id="blurDelBtn" disabled>選択中のぼかしを削除</button>
+            <button class="btn secondary small" id="blurClearBtn">このカットのぼかしを全消去</button>
+          </div>
+          <div class="note">🎥 動画のカットは先頭のコマに合わせて位置指定します。動画内で人が動く場合は、動く範囲をカバーできるよう大きめに設定してください。</div>
+        </div>
+      </div>
+    </div>
+    <div class="navrow"><button class="btn secondary" data-go="3">← もどる</button><button class="btn" data-go="5">つぎへ：書き出し →</button></div>
+  </section>
+
+  <!-- STEP 5 -->
+  <section class="step" data-step="5">
+    <div class="card">
+      <h2>プレビューと書き出し</h2>
+      <p class="hint">縦型 1080×1920（リール比率）で書き出します。音声は入りません。</p>
+      <div class="finalWrap">
+        <div id="stageBox"><canvas id="stage" width="1080" height="1920"></canvas></div>
+        <div class="finalSide">
+          <div class="genrow">
+            <button class="btn teal" id="playBtn">▶ プレビュー再生</button>
+            <button class="btn" id="exportBtn">⬇ 動画を書き出す</button>
+          </div>
+          <div id="exportBar"><i></i></div>
+          <p class="muted" id="exportInfo"></p>
+          <div id="dlArea"></div>
+          <div class="field" style="margin-top:18px">
+            <label for="postCaption">投稿用キャプション（コピーして使えます）</label>
+            <textarea id="postCaption"></textarea>
+            <div class="genrow"><button class="btn secondary small" id="copyBtn">📋 コピー</button><span class="muted" id="copyMsg"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="navrow"><button class="btn secondary" data-go="4">← もどる</button><span></span></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const W = 1080, H = 1920, TRANS = 0.6;
+
+const state = {
+  slides: [],           // {kind,el,w,h,duration,blurs:[{x,y,r}],caption,name,blurCache}
+  theme: 'pop', motion: 'mix', transition: 'fade',
+  seed: 0, title: '', outro: '', label: '○○短期大学 こども学科',
+  hashtags: '#保育学生 #保育士のたまご #幼児教育 #短大 #オープンキャンパス #進路 #高校生とつながりたい #fjk #sjk #ljk #春から保育学生'
+};
+
+/* ---------- テーマ定義 ---------- */
+const THEMES = {
+  pop:    { label:'ポップ',   desc:'元気・カラフル', chips:['#FF5DA2','#FFD645','#4DD2FF'],
+            frame:'#FFD645', capBg:'rgba(255,255,255,.94)', capInk:'#26211C',
+            titleFill:'#FFFFFF', titleStroke:'#FF5DA2', emojis:['✨','🎈','⭐️','💛'], confetti:true },
+  girly:  { label:'ガーリー', desc:'やわらか・パステル', chips:['#FFC9DE','#FFE9F2','#C9E8FF'],
+            frame:'#FFC9DE', capBg:'rgba(255,255,255,.94)', capInk:'#8C4A63',
+            titleFill:'#FFFFFF', titleStroke:'#F48FB1', emojis:['🌸','🎀','💗','🫧'], confetti:false },
+  simple: { label:'シンプル', desc:'すっきり見せる', chips:['#22304A','#FFFFFF','#9FB4D8'],
+            frame:null, capBg:'rgba(22,30,48,.85)', capInk:'#FFFFFF',
+            titleFill:'#FFFFFF', titleStroke:'rgba(22,30,48,.9)', emojis:[], confetti:false },
+  emo:    { label:'エモ',     desc:'しっとり・余韻', chips:['#1B1B22','#D9CDB8','#6E6A8F'],
+            frame:null, letterbox:true, capBg:'rgba(10,10,14,.55)', capInk:'#F2ECDF',
+            titleFill:'#F2ECDF', titleStroke:'rgba(10,10,14,.65)', emojis:['🌙','🤍'], confetti:false }
+};
+
+/* ---------- 文章の自動生成（パターン式） ---------- */
+const HOOKS = [
+  'これ全部、"授業"なんです✨',
+  '保育学生のリアル、見せます👀',
+  '先生のたまご、成長中🐣',
+  '進路まよい中の高校生へ🌱',
+  '放課後じゃなくて、これが授業😳'
+];
+const OUTROS = [
+  '続きはオープンキャンパスで💫',
+  '気になったらプロフのリンクへ📲',
+  '保存して進路の参考にしてね📌',
+  'フォローして学校生活をのぞき見👀',
+  '来年、ここで一緒に学ぼう🌸'
+];
+const DEFAULT_CAPS = [
+  'キャンパスのいち日常🌿','授業もまいにち発見だらけ','先生と学生の距離が近い！',
+  '実習に向けて練習中','ピアノも工作も、ぜんぶ学び'
+];
+
+function generateText(newSeed){
+  if (newSeed) state.seed = (state.seed + 1) % 97;
+  const desc = $('#descInput').value.trim();
+  state.title = HOOKS[state.seed % HOOKS.length];
+  state.outro = OUTROS[state.seed % OUTROS.length];
+  const sents = desc.split(/[。．！!？?\n]+/).map(s=>s.trim()).filter(Boolean);
+  const th = THEMES[state.theme];
+  const emo = th.emojis.length ? th.emojis : ['✨'];
+  state.slides.forEach((sl,i)=>{
+    let base = sents.length ? sents[(i + state.seed) % sents.length]
+                            : DEFAULT_CAPS[(i + state.seed) % DEFAULT_CAPS.length];
+    if (base.length > 42) base = base.slice(0, 41) + '…';
+    if (!/[✨🎈⭐️💛🌸🎀💗🫧🌙🤍🌿！!?？]$/u.test(base)) base += emo[(i + state.seed) % emo.length];
+    sl.caption = base;
+  });
+  $('#titleInput').value = state.title;
+  $('#outroInput').value = state.outro;
+  $('#patLabel').textContent = 'パターン ' + (state.seed % HOOKS.length + 1);
+  renderCapEdits();
+}
+
+function renderCapEdits(){
+  const box = $('#capEdits'); box.innerHTML = '';
+  state.slides.forEach((sl,i)=>{
+    const row = document.createElement('div'); row.className = 'capEdit';
+    const idx = document.createElement('span'); idx.className = 'idx'; idx.textContent = i+1;
+    const inp = document.createElement('input'); inp.type = 'text'; inp.value = sl.caption || '';
+    inp.setAttribute('aria-label', 'カット' + (i+1) + 'のコメント');
+    inp.addEventListener('input', ()=> sl.caption = inp.value);
+    row.append(idx, inp); box.append(row);
+  });
+}
+
+/* ---------- 素材の読み込み ---------- */
+async function addFiles(files){
+  for (const f of files){
+    try{
+      const url = URL.createObjectURL(f);
+      if (f.type.startsWith('image/')){
+        const img = new Image();
+        await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
+        state.slides.push({ kind:'image', el:img, w:img.naturalWidth, h:img.naturalHeight,
+          duration:3, blurs:[], caption:'', name:f.name, blurCache:null });
+      } else if (f.type.startsWith('video/')){
+        const v = document.createElement('video');
+        v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
+        await new Promise((res,rej)=>{ v.onloadedmetadata=res; v.onerror=rej; });
+        await new Promise(res=>{ v.currentTime = 0.05; v.onseeked = res; setTimeout(res, 1500); });
+        state.slides.push({ kind:'video', el:v, w:v.videoWidth, h:v.videoHeight,
+          duration: Math.min(Math.round(v.duration*2)/2 || 3, 8), blurs:[], caption:'', name:f.name, blurCache:null });
+      }
+    }catch(e){ console.warn('読み込み失敗', f.name, e); }
+  }
+  renderSlideList();
+}
+
+function slideThumb(sl){
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 96;
+  const x = c.getContext('2d');
+  const s = Math.max(64/sl.w, 96/sl.h);
+  x.drawImage(sl.el, (64-sl.w*s)/2, (96-sl.h*s)/2, sl.w*s, sl.h*s);
+  return c;
+}
+
+function renderSlideList(){
+  const box = $('#slideList'); box.innerHTML = '';
+  state.slides.forEach((sl,i)=>{
+    const item = document.createElement('div'); item.className = 'slideItem';
+    item.append(slideThumb(sl));
+    const meta = document.createElement('div'); meta.className = 'meta';
+    meta.innerHTML = '<div class="name"></div><div class="kind">' +
+      (sl.kind==='video' ? '🎥 動画' : '📷 写真') + '</div>';
+    meta.querySelector('.name').textContent = (i+1) + '. ' + sl.name;
+    const dur = document.createElement('label');
+    dur.innerHTML = '表示秒数 ';
+    const din = document.createElement('input');
+    din.type='number'; din.min='1'; din.max='15'; din.step='0.5'; din.value = sl.duration;
+    din.addEventListener('change', ()=>{ sl.duration = Math.min(15, Math.max(1, +din.value || 3)); });
+    dur.append(din);
+    const ops = document.createElement('div'); ops.className = 'ops';
+    const mk = (t,fn,cls)=>{ const b=document.createElement('button'); b.className='iconbtn'+(cls?' '+cls:'');
+      b.textContent=t; b.addEventListener('click',fn); return b; };
+    ops.append(
+      mk('↑', ()=>{ if(i>0){ [state.slides[i-1],state.slides[i]]=[state.slides[i],state.slides[i-1]]; renderSlideList(); } }),
+      mk('↓', ()=>{ if(i<state.slides.length-1){ [state.slides[i+1],state.slides[i]]=[state.slides[i],state.slides[i+1]]; renderSlideList(); } }),
+      mk('✕', ()=>{ state.slides.splice(i,1); renderSlideList(); }, 'del')
+    );
+    item.append(meta, dur, ops); box.append(item);
+  });
+}
+
+/* ---------- ぼかしエディタ ---------- */
+let editIdx = 0, selBlur = -1, dragging = false;
+const bCvs = $('#blurCanvas'), bCtx = bCvs.getContext('2d');
+
+function initBlurStep(){
+  editIdx = Math.min(editIdx, state.slides.length-1);
+  if (editIdx < 0) editIdx = 0;
+  const tb = $('#blurThumbs'); tb.innerHTML = '';
+  state.slides.forEach((sl,i)=>{
+    const b = document.createElement('button');
+    if (i===editIdx) b.classList.add('active');
+    b.append(slideThumb(sl));
+    b.addEventListener('click', ()=>{ editIdx=i; selBlur=-1; initBlurStep(); });
+    tb.append(b);
+  });
+  drawEditor();
+}
+
+function editorRect(){
+  const sl = state.slides[editIdx];
+  const maxW = Math.min(420, ($('#app').clientWidth) - 40), maxH = 520;
+  const s = Math.min(maxW/sl.w, maxH/sl.h);
+  return { s, w: Math.round(sl.w*s), h: Math.round(sl.h*s) };
+}
+
+function drawEditor(){
+  const sl = state.slides[editIdx];
+  if (!sl){ bCvs.width = bCvs.height = 10; return; }
+  const r = editorRect();
+  bCvs.width = r.w; bCvs.height = r.h;
+  bCtx.drawImage(sl.el, 0, 0, r.w, r.h);
+  sl.blurs.forEach((b,i)=>{
+    const cx=b.x*r.w, cy=b.y*r.h, rad=b.r*r.w;
+    bCtx.save(); bCtx.beginPath(); bCtx.arc(cx,cy,rad,0,7); bCtx.clip();
+    bCtx.filter = 'blur(' + Math.max(8, rad*0.45) + 'px)';
+    bCtx.drawImage(sl.el, 0, 0, r.w, r.h);
+    bCtx.filter = 'none'; bCtx.restore();
+    bCtx.beginPath(); bCtx.arc(cx,cy,rad,0,7);
+    bCtx.setLineDash(i===selBlur ? [] : [6,5]);
+    bCtx.lineWidth = i===selBlur ? 3 : 2;
+    bCtx.strokeStyle = i===selBlur ? '#E85D4A' : 'rgba(255,255,255,.9)';
+    bCtx.stroke(); bCtx.setLineDash([]);
+  });
+  const ctl = $('#blurSize');
+  ctl.disabled = $('#blurDelBtn').disabled = (selBlur < 0);
+  if (selBlur >= 0) ctl.value = Math.round(sl.blurs[selBlur].r * 100);
+}
+
+function evPos(e){
+  const rc = bCvs.getBoundingClientRect();
+  return { x:(e.clientX-rc.left)/rc.width, y:(e.clientY-rc.top)/rc.height };
+}
+bCvs.addEventListener('pointerdown', e=>{
+  const sl = state.slides[editIdx]; if (!sl) return;
+  const p = evPos(e); const r = editorRect();
+  let hit = -1;
+  sl.blurs.forEach((b,i)=>{
+    const d = Math.hypot((p.x-b.x)*r.w, (p.y-b.y)*r.h);
+    if (d < b.r*r.w) hit = i;
+  });
+  if (hit >= 0){ selBlur = hit; }
+  else { sl.blurs.push({x:p.x, y:p.y, r:0.09}); selBlur = sl.blurs.length-1; }
+  sl.blurCache = null; dragging = true;
+  bCvs.setPointerCapture(e.pointerId);
+  drawEditor();
+});
+bCvs.addEventListener('pointermove', e=>{
+  if (!dragging || selBlur<0) return;
+  const sl = state.slides[editIdx]; const p = evPos(e);
+  sl.blurs[selBlur].x = Math.min(1, Math.max(0, p.x));
+  sl.blurs[selBlur].y = Math.min(1, Math.max(0, p.y));
+  drawEditor();
+});
+bCvs.addEventListener('pointerup', ()=> dragging = false);
+$('#blurSize').addEventListener('input', e=>{
+  const sl = state.slides[editIdx];
+  if (sl && selBlur>=0){ sl.blurs[selBlur].r = (+e.target.value)/100; sl.blurCache=null; drawEditor(); }
+});
+$('#blurDelBtn').addEventListener('click', ()=>{
+  const sl = state.slides[editIdx];
+  if (sl && selBlur>=0){ sl.blurs.splice(selBlur,1); selBlur=-1; sl.blurCache=null; drawEditor(); }
+});
+$('#blurClearBtn').addEventListener('click', ()=>{
+  const sl = state.slides[editIdx];
+  if (sl){ sl.blurs = []; selBlur=-1; sl.blurCache=null; drawEditor(); }
+});
+
+/* ---------- 描画エンジン ---------- */
+const stage = $('#stage'), ctx = stage.getContext('2d');
+function lerp(a,b,t){ return a+(b-a)*t; }
+function easeOutBack(t){ const c=1.70158; return 1+ (c+1)*Math.pow(t-1,3)+ c*Math.pow(t-1,2); }
+function rng(seed){ let s = seed*9301+49297; return ()=>{ s=(s*9301+49297)%233280; return s/233280; }; }
+function rr(x,y,w,h,r){ if (ctx.roundRect){ ctx.roundRect(x,y,w,h,r); return; }
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+function starts(){
+  const arr=[0];
+  state.slides.forEach(s=>arr.push(arr[arr.length-1]+s.duration));
+  return arr;
+}
+function totalDur(){ return state.slides.reduce((a,s)=>a+s.duration,0); }
+
+function motionOf(i,p){
+  const modes = state.motion==='mix' ? ['in','out','left','right'] : [state.motion];
+  const m = modes[i % modes.length];
+  if (m==='in')   return { s: lerp(1.03,1.14,p), dx:0, dy:0 };
+  if (m==='out')  return { s: lerp(1.14,1.03,p), dx:0, dy:0 };
+  if (m==='left') return { s: 1.13, dx: lerp(1,-1,p)*W*0.045, dy:0 };
+  return { s: 1.13, dx: lerp(-1,1,p)*W*0.045, dy:0 };
+}
+
+function getBlurCache(sl){
+  if (sl.kind!=='image') return null;
+  if (sl.blurCache) return sl.blurCache;
+  if (!sl.blurs.length) return null;
+  const scale = Math.min(1, 1280/sl.w);
+  const c = document.createElement('canvas');
+  c.width = Math.round(sl.w*scale); c.height = Math.round(sl.h*scale);
+  const x = c.getContext('2d');
+  x.filter = 'blur(' + Math.round(28*scale+12) + 'px)';
+  x.drawImage(sl.el, 0, 0, c.width, c.height);
+  sl.blurCache = c;
+  return c;
+}
+
+function drawMedia(i, p, alpha){
+  const sl = state.slides[i]; if (!sl) return;
+  const m = motionOf(i,p);
+  const cover = Math.max(W/sl.w, H/sl.h) * m.s;
+  const dw = sl.w*cover, dh = sl.h*cover;
+  const dx = (W-dw)/2 + m.dx, dy = (H-dh)/2 + m.dy;
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.drawImage(sl.el, dx, dy, dw, dh);
+  if (sl.blurs.length){
+    const cache = getBlurCache(sl);
+    for (const b of sl.blurs){
+      const cx = dx + b.x*dw, cy = dy + b.y*dh, r = b.r*dw;
+      ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.clip();
+      if (cache){ ctx.drawImage(cache, dx, dy, dw, dh); }
+      else { ctx.filter = 'blur(' + Math.max(24, r*0.5) + 'px)'; ctx.drawImage(sl.el, dx, dy, dw, dh); ctx.filter='none'; }
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+
+function wrapLines(text, font, maxW){
+  ctx.font = font;
+  const out = []; let line = '';
+  for (const ch of text){
+    if (ch==='\n'){ out.push(line); line=''; continue; }
+    if (ctx.measureText(line+ch).width > maxW && line){ out.push(line); line=ch; }
+    else line += ch;
+  }
+  if (line) out.push(line);
+  return out.slice(0,4);
+}
+
+const FONT = "'Hiragino Maru Gothic ProN','Hiragino Sans','Noto Sans JP',sans-serif";
+
+function drawOverlays(i, localT, alpha, globalT){
+  const sl = state.slides[i]; if (!sl) return;
+  const th = THEMES[state.theme];
+  ctx.save(); ctx.globalAlpha = alpha;
+
+  // レターボックス（エモ）
+  if (th.letterbox){
+    ctx.fillStyle = 'rgba(8,8,12,.88)';
+    ctx.fillRect(0,0,W,120); ctx.fillRect(0,H-150,W,150);
+  }
+  // フレーム
+  if (th.frame){
+    ctx.lineWidth = 14; ctx.strokeStyle = th.frame;
+    ctx.beginPath(); rr(28,28,W-56,H-56,42); ctx.stroke();
+  }
+  // 紙吹雪（ポップ）
+  if (th.confetti){
+    const rand = rng(i+7);
+    for (let k=0;k<16;k++){
+      const px = rand()*W, py = rand()*H;
+      const bob = Math.sin(globalT*2 + k)*14;
+      ctx.fillStyle = th.chips[k % th.chips.length];
+      ctx.globalAlpha = alpha*0.85;
+      ctx.beginPath(); ctx.arc(px, py+bob, 10+rand()*8, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = alpha;
+  }
+  // コーナー絵文字
+  if (th.emojis.length){
+    ctx.font = '72px ' + FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
+    const bob = Math.sin(globalT*2.2)*10;
+    ctx.fillText(th.emojis[i % th.emojis.length], 96, 180+bob);
+    ctx.fillText(th.emojis[(i+1) % th.emojis.length], W-96, 180-bob);
+  }
+  // 上部ラベル
+  if (state.label.trim()){
+    ctx.font = '700 34px ' + FONT; ctx.textAlign='center'; ctx.textBaseline='middle';
+    const tw = ctx.measureText(state.label).width;
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.beginPath(); rr(W/2-tw/2-28, 96, tw+56, 62, 31); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(state.label, W/2, 128);
+  }
+  // ストーリーズ風プログレスバー
+  const n = state.slides.length, st = starts();
+  const bw = (W-80-(n-1)*10)/n;
+  for (let k=0;k<n;k++){
+    const x0 = 40 + k*(bw+10);
+    ctx.fillStyle = 'rgba(255,255,255,.35)';
+    ctx.beginPath(); rr(x0, 44, bw, 10, 5); ctx.fill();
+    let f = globalT >= st[k+1] ? 1 : globalT <= st[k] ? 0 : (globalT-st[k])/(st[k+1]-st[k]);
+    if (f>0){ ctx.fillStyle='rgba(255,255,255,.95)'; ctx.beginPath(); rr(x0,44,Math.max(10,bw*f),10,5); ctx.fill(); }
+  }
+  // タイトル（先頭カット）
+  if (i===0 && state.title.trim()){
+    const ap = Math.min(1, localT/0.5);
+    const sc = easeOutBack(ap);
+    ctx.save(); ctx.translate(W/2, H*0.40); ctx.scale(sc, sc);
+    const font = '900 92px ' + FONT;
+    const lines = wrapLines(state.title, font, W-260);
+    ctx.font = font; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineJoin='round'; ctx.lineWidth = 22; ctx.strokeStyle = th.titleStroke;
+    ctx.shadowColor='rgba(0,0,0,.3)'; ctx.shadowBlur=18; ctx.shadowOffsetY=6;
+    lines.forEach((ln,li)=>{
+      const y = (li-(lines.length-1)/2)*116;
+      ctx.strokeText(ln,0,y); ctx.fillStyle=th.titleFill; ctx.fillText(ln,0,y);
+    });
+    ctx.restore();
+  }
+  // コメント帯（下部）
+  const cap = (sl.caption||'').trim();
+  if (cap){
+    const ap = Math.min(1, localT/0.4);
+    const rise = (1-ap)*60;
+    const font = '800 46px ' + FONT;
+    const lines = wrapLines(cap, font, W-300);
+    const lh = 66, bh = lines.length*lh + 44;
+    const by = H-430 - bh + rise;
+    ctx.globalAlpha = alpha*ap;
+    ctx.fillStyle = th.capBg;
+    ctx.beginPath(); rr(110, by, W-220, bh, 26); ctx.fill();
+    ctx.font = font; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillStyle = th.capInk;
+    lines.forEach((ln,li)=> ctx.fillText(ln, W/2, by+22+lh/2+li*lh));
+    ctx.globalAlpha = alpha;
+  }
+  // 締めの一言（最終カット）
+  if (i===state.slides.length-1 && state.outro.trim()){
+    const ap = Math.min(1, Math.max(0,(localT-0.6))/0.5);
+    if (ap>0){
+      ctx.globalAlpha = alpha*ap;
+      const font = '900 64px ' + FONT;
+      const lines = wrapLines(state.outro, font, W-280);
+      ctx.font = font; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.lineJoin='round'; ctx.lineWidth=18; ctx.strokeStyle='rgba(0,0,0,.55)';
+      lines.forEach((ln,li)=>{
+        const y = H*0.50 + (li-(lines.length-1)/2)*84;
+        ctx.strokeText(ln,W/2,y); ctx.fillStyle='#fff'; ctx.fillText(ln,W/2,y);
+      });
+      ctx.globalAlpha = alpha;
+    }
+  }
+  ctx.restore();
+}
+
+function drawFrame(t){
+  const st = starts(), total = totalDur();
+  t = Math.min(t, total-0.001);
+  let i = 0;
+  while (i < state.slides.length-1 && t >= st[i+1]) i++;
+  const localT = t - st[i];
+  const p = localT / state.slides[i].duration;
+  ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+
+  const tEnd = st[i+1];
+  const inTrans = (i < state.slides.length-1) && (t > tEnd - TRANS);
+  const q = inTrans ? (t-(tEnd-TRANS))/TRANS : 0;
+
+  drawMedia(i, p, 1);
+  if (inTrans){
+    const nl = t-(tEnd-TRANS);
+    if (state.transition==='fade'){
+      drawMedia(i+1, nl/state.slides[i+1].duration, q);
+    } else if (state.transition==='slide'){
+      ctx.save(); ctx.translate(W*(1-q),0);
+      drawMedia(i+1, nl/state.slides[i+1].duration, 1); ctx.restore();
+    } else { // wipe
+      ctx.save(); ctx.beginPath(); ctx.rect(0,0,W*q,H); ctx.clip();
+      drawMedia(i+1, nl/state.slides[i+1].duration, 1); ctx.restore();
+    }
+  }
+  if (q < 0.5) drawOverlays(i, localT, 1-q*1.6, t);
+  else drawOverlays(i+1, t-(tEnd-TRANS), (q-0.5)*2, t);
+  syncVideos(i, inTrans ? i+1 : -1);
+}
+
+function syncVideos(cur, next){
+  state.slides.forEach((sl,k)=>{
+    if (sl.kind!=='video') return;
+    const active = (k===cur || k===next);
+    if (active && playingClock !== null){
+      if (sl.el.paused){ try{ sl.el.currentTime = 0; sl.el.play(); }catch(e){} }
+    } else if (!sl.el.paused){ sl.el.pause(); }
+  });
+}
+
+/* ---------- プレビュー / 書き出し ---------- */
+let playingClock = null, rafId = 0, recorder = null;
+
+function stopPlayback(){
+  playingClock = null; cancelAnimationFrame(rafId);
+  state.slides.forEach(sl=>{ if(sl.kind==='video' && !sl.el.paused) sl.el.pause(); });
+  $('#playBtn').textContent = '▶ プレビュー再生';
+}
+
+function startPlayback(onEnd){
+  stopPlayback();
+  state.slides.forEach(sl=>{ if(sl.kind==='video'){ try{ sl.el.currentTime=0; }catch(e){} } });
+  playingClock = performance.now();
+  $('#playBtn').textContent = '⏸ 停止';
+  const total = totalDur();
+  const loop = now=>{
+    if (playingClock===null) return;
+    const t = (now-playingClock)/1000;
+    if (t >= total){
+      drawFrame(total);
+      stopPlayback();
+      if (onEnd) onEnd();
+      return;
+    }
+    drawFrame(t);
+    if (recorder){ const bar = $('#exportBar i'); bar.style.width = Math.round(t/total*100)+'%'; }
+    rafId = requestAnimationFrame(loop);
+  };
+  rafId = requestAnimationFrame(loop);
+}
+
+$('#playBtn').addEventListener('click', ()=>{
+  if (!state.slides.length) return alert('先にステップ1で写真・動画を追加してください');
+  if (playingClock!==null){ stopPlayback(); return; }
+  startPlayback();
+});
+
+function pickMime(){
+  const cands = ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'];
+  for (const c of cands) if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+  return '';
+}
+
+$('#exportBtn').addEventListener('click', ()=>{
+  if (!state.slides.length) return alert('先にステップ1で写真・動画を追加してください');
+  if (recorder) return;
+  const mime = pickMime();
+  if (!mime) return alert('このブラウザは動画の録画に対応していません。ChromeまたはSafariの最新版をお試しください。');
+  const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+  $('#exportInfo').textContent = '書き出し中…（動画をリアルタイムで録画しています。' + Math.ceil(totalDur()) + '秒ほどかかります）';
+  $('#exportBar').style.display = 'block';
+  $('#dlArea').innerHTML = '';
+  $('#exportBtn').disabled = true;
+  const stream = stage.captureStream(30);
+  const chunks = [];
+  recorder = new MediaRecorder(stream, { mimeType:mime, videoBitsPerSecond: 9_000_000 });
+  recorder.ondataavailable = e=>{ if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = ()=>{
+    const blob = new Blob(chunks, {type:mime});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'reel_' + new Date().toISOString().slice(0,10) + '.' + ext;
+    a.textContent = '⬇ 動画を保存（' + ext.toUpperCase() + '・' + (blob.size/1024/1024).toFixed(1) + 'MB）';
+    $('#dlArea').append(a);
+    $('#exportInfo').textContent = ext==='webm'
+      ? '完了！WEBM形式で保存されました。インスタに上げる前にMP4への変換が必要な場合があります（スマホのChrome/Safariや変換サイトでOK）。'
+      : '完了！MP4形式なのでそのままインスタに投稿できます。';
+    $('#exportBar').style.display = 'none';
+    $('#exportBtn').disabled = false;
+    recorder = null;
+  };
+  recorder.start(250);
+  startPlayback(()=>{ if (recorder) recorder.stop(); });
+});
+
+/* ---------- 投稿キャプション ---------- */
+function buildPostCaption(){
+  const desc = $('#descInput').value.trim();
+  $('#postCaption').value =
+    state.title + '\n\n' + (desc ? desc + '\n\n' : '') + state.outro + '\n\n' + state.hashtags;
+}
+$('#copyBtn').addEventListener('click', async ()=>{
+  const ta = $('#postCaption');
+  try{ await navigator.clipboard.writeText(ta.value); }
+  catch(e){ ta.select(); document.execCommand('copy'); }
+  $('#copyMsg').textContent = 'コピーしました！';
+  setTimeout(()=> $('#copyMsg').textContent = '', 2000);
+});
+
+/* ---------- テーマUI・ガチャ ---------- */
+function renderThemeGrid(){
+  const g = $('#themeGrid'); g.innerHTML = '';
+  Object.entries(THEMES).forEach(([key,th])=>{
+    const b = document.createElement('button');
+    b.className = 'themeCard' + (state.theme===key ? ' active' : '');
+    b.innerHTML = '<span class="sw">' + th.chips.map(c=>'<i style="background:'+c+'"></i>').join('') +
+      '</span><span class="tn">' + th.label + '</span><br><span class="td">' + th.desc + '</span>';
+    b.addEventListener('click', ()=>{ state.theme = key; renderThemeGrid(); });
+    g.append(b);
+  });
+}
+$('#gachaBtn').addEventListener('click', ()=>{
+  const keys = Object.keys(THEMES);
+  state.theme = keys[Math.floor(Math.random()*keys.length)];
+  state.motion = ['mix','in','out','left','right'][Math.floor(Math.random()*5)];
+  state.transition = ['fade','slide','wipe'][Math.floor(Math.random()*3)];
+  $('#motionSel').value = state.motion;
+  $('#transSel').value = state.transition;
+  renderThemeGrid();
+  generateText(true);
+});
+
+/* ---------- ナビゲーション・結線 ---------- */
+function goStep(n){
+  $$('.step').forEach(s=> s.classList.toggle('show', +s.dataset.step===n));
+  $$('.steps button').forEach(b=> b.classList.toggle('active', +b.dataset.step===n));
+  stopPlayback();
+  if (n===2) renderCapEdits();
+  if (n===4) initBlurStep();
+  if (n===5){ buildPostCaption(); if (state.slides.length) drawFrame(0.01); }
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+$$('.steps button').forEach(b=> b.addEventListener('click', ()=> goStep(+b.dataset.step)));
+$$('[data-go]').forEach(b=> b.addEventListener('click', ()=> goStep(+b.dataset.go)));
+
+const dz = $('#dropzone'), fi = $('#fileInput');
+dz.addEventListener('click', ()=> fi.click());
+dz.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fi.click(); } });
+fi.addEventListener('change', ()=>{ addFiles([...fi.files]); fi.value=''; });
+dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('drag'); });
+dz.addEventListener('dragleave', ()=> dz.classList.remove('drag'));
+dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); addFiles([...e.dataTransfer.files]); });
+
+$('#genBtn').addEventListener('click', ()=> generateText(false));
+$('#regenBtn').addEventListener('click', ()=> generateText(true));
+$('#titleInput').addEventListener('input', e=> state.title = e.target.value);
+$('#outroInput').addEventListener('input', e=> state.outro = e.target.value);
+$('#labelInput').addEventListener('input', e=> state.label = e.target.value);
+$('#motionSel').addEventListener('change', e=> state.motion = e.target.value);
+$('#transSel').addEventListener('change', e=> state.transition = e.target.value);
+
+renderThemeGrid();
+ctx.fillStyle = '#000'; ctx.fillRect(0,0,W,H);
+ctx.fillStyle = '#fff'; ctx.font = '700 52px ' + FONT; ctx.textAlign='center';
+ctx.fillText('素材を追加するとここに', W/2, H/2-40);
+ctx.fillText('プレビューが表示されます', W/2, H/2+40);
+</script>
+</body>
+</html>
