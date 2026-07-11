@@ -70,6 +70,10 @@ section.step.show{display:block;}
   color:var(--sub);cursor:pointer;transition:border-color .15s,background .15s;background:var(--card);}
 #dropzone.drag{border-color:var(--accent);background:var(--accent-soft);}
 #dropzone strong{color:var(--ink);display:block;font-size:15px;margin-bottom:4px;}
+#loadStatus{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+.ls{font-size:12.5px;border-radius:8px;padding:8px 12px;line-height:1.5;}
+.ls.ok{background:var(--teal-soft);color:var(--ink);}
+.ls.ng{background:var(--accent-soft);color:var(--danger);}
 
 #slideList{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
 .slideItem{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);
@@ -161,9 +165,11 @@ input[type=range]{width:100%;accent-color:var(--accent);}
         <strong>ここをクリック、またはファイルをドラッグ</strong>
         写真（JPG / PNG）と動画（MP4 / MOV など）に対応
       </div>
-      <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+      <input type="file" id="fileInput" accept="image/*,video/*,.heic,.heif,.mov,.mp4,.m4v" multiple hidden>
+      <div id="loadStatus"></div>
       <div id="slideList"></div>
-      <div class="note">📱 ファイルはこの端末のブラウザ内だけで処理され、外部には送信されません。</div>
+      <div class="note">📱 ファイルはこの端末のブラウザ内だけで処理され、外部には送信されません。<br>
+      🍎 iPhoneの方へ：「写真」から選ぶと自動でJPEGに変換されて読み込めます。「ファイル」アプリから選んだHEIC形式が読み込めない場合は、設定 → カメラ → フォーマット →「互換性優先」で撮影するか、JPEGに変換してからお試しください。</div>
     </div>
     <div class="navrow"><span></span><button class="btn" data-go="2">つぎへ：文章 →</button></div>
   </section>
@@ -366,24 +372,81 @@ function renderCapEdits(){
 }
 
 /* ---------- 素材の読み込み ---------- */
-async function addFiles(files){
-  for (const f of files){
+const IMG_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp)$/i;
+const VID_EXT = /\.(mov|mp4|m4v|webm|3gpp?|mkv)$/i;
+
+function statusMsg(text, ok){
+  const d = document.createElement('div');
+  d.className = 'ls ' + (ok ? 'ok' : 'ng');
+  d.textContent = text;
+  $('#loadStatus').append(d);
+  if (ok) setTimeout(()=> d.remove(), 6000);
+}
+
+async function loadAsImage(f){
+  const url = URL.createObjectURL(f);
+  try{
+    const img = new Image();
+    await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
+    if (!img.naturalWidth) throw new Error('empty');
+    return { kind:'image', el:img, w:img.naturalWidth, h:img.naturalHeight };
+  }catch(e){
+    // 第2候補: createImageBitmap（HEIC等をデコードできる環境向け）
     try{
-      const url = URL.createObjectURL(f);
-      if (f.type.startsWith('image/')){
-        const img = new Image();
-        await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=url; });
-        state.slides.push({ kind:'image', el:img, w:img.naturalWidth, h:img.naturalHeight,
-          duration:3, blurs:[], caption:'', name:f.name, blurCache:null });
-      } else if (f.type.startsWith('video/')){
-        const v = document.createElement('video');
-        v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
-        await new Promise((res,rej)=>{ v.onloadedmetadata=res; v.onerror=rej; });
-        await new Promise(res=>{ v.currentTime = 0.05; v.onseeked = res; setTimeout(res, 1500); });
-        state.slides.push({ kind:'video', el:v, w:v.videoWidth, h:v.videoHeight,
-          duration: Math.min(Math.round(v.duration*2)/2 || 3, 8), blurs:[], caption:'', name:f.name, blurCache:null });
-      }
-    }catch(e){ console.warn('読み込み失敗', f.name, e); }
+      const bmp = await createImageBitmap(f);
+      const c = document.createElement('canvas');
+      c.width = bmp.width; c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      return { kind:'image', el:c, w:c.width, h:c.height };
+    }catch(e2){ return null; }
+  }
+}
+
+async function loadAsVideo(f){
+  const url = URL.createObjectURL(f);
+  const v = document.createElement('video');
+  v.muted = true; v.playsInline = true; v.setAttribute('playsinline','');
+  v.preload = 'auto'; v.src = url;
+  const ok = await new Promise(res=>{
+    v.onloadedmetadata = ()=>res(true);
+    v.onerror = ()=>res(false);
+    setTimeout(()=>res(v.readyState >= 1), 8000);
+  });
+  if (!ok || !v.videoWidth) return null;
+  // iOSは操作なしだと最初のコマを読み込まないことがあるので、消音で一瞬再生して止める
+  try{ await v.play(); v.pause(); }catch(e){}
+  try{ v.currentTime = 0.05; }catch(e){}
+  await new Promise(res=>{ v.onseeked=res; v.onloadeddata=res; setTimeout(res, 2000); });
+  return { kind:'video', el:v, w:v.videoWidth, h:v.videoHeight, dur:v.duration };
+}
+
+async function addFiles(files){
+  $('#loadStatus').innerHTML = '';
+  if (!files.length) return;
+  for (const f of files){
+    let kind = f.type.startsWith('image/') ? 'image'
+             : f.type.startsWith('video/') ? 'video'
+             : IMG_EXT.test(f.name) ? 'image'
+             : VID_EXT.test(f.name) ? 'video' : 'unknown';
+    let media = null;
+    try{
+      if (kind === 'image') media = await loadAsImage(f);
+      else if (kind === 'video') media = await loadAsVideo(f);
+      else media = (await loadAsImage(f)) || (await loadAsVideo(f));
+    }catch(e){ media = null; }
+    if (media){
+      state.slides.push({
+        kind: media.kind, el: media.el, w: media.w, h: media.h,
+        duration: media.kind==='video' ? Math.min(Math.round((media.dur||3)*2)/2 || 3, 8) : 3,
+        blurs:[], caption:'', name:f.name, blurCache:null
+      });
+      statusMsg('✅ ' + f.name + ' を追加しました', true);
+    } else {
+      const isHeic = /\.hei[cf]$/i.test(f.name) || /hei[cf]/i.test(f.type);
+      statusMsg('⚠️ ' + f.name + ' を読み込めませんでした。' + (isHeic
+        ? 'HEIC形式に対応していないブラウザです。iPhoneの「写真」アプリから選び直すか、設定 → カメラ → フォーマット →「互換性優先」をお試しください。'
+        : '対応形式：JPG / PNG / WEBP（写真）、MP4 / MOV（動画）です。'), false);
+    }
   }
   renderSlideList();
 }
