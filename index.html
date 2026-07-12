@@ -1,0 +1,1753 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<title>瞬間英作文</title>
+<meta name="description" content="話した英語をAIが即添削する瞬間英作文トレーナー">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="瞬間英作文">
+<meta name="theme-color" content="#faf8f4">
+<style>
+  :root {
+    --bg: #faf8f4;
+    --bg-listening: #e8f2e6;
+    --bg-processing: #f7eedd;
+    --bg-speaking: #e3edf5;
+    --ink: #1e1e1c;
+    --ink-soft: #6b6a64;
+    --line: #e3ded4;
+    --accent: #2f6b5f;
+    --accent-soft: #dce9e5;
+    --danger: #a4472f;
+    --card: #ffffff;
+    --radius: 14px;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    --bg-current: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;
+    background: var(--bg-current);
+    color: var(--ink);
+    transition: background-color .4s ease;
+    overscroll-behavior: none;
+  }
+  body[data-state="listening"]  { --bg-current: var(--bg-listening); }
+  body[data-state="processing"] { --bg-current: var(--bg-processing); }
+  body[data-state="speaking"]   { --bg-current: var(--bg-speaking); }
+  body[data-state="shadowing"]  { --bg-current: #ece9f4; }
+
+  .app { display: flex; flex-direction: column; height: 100dvh; }
+
+  header {
+    padding: calc(env(safe-area-inset-top, 0px) + 10px) 16px 0;
+  }
+  .tabs {
+    display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding-bottom: 0;
+  }
+  .tab {
+    flex: 1; text-align: center; padding: 10px 0 12px; font-size: 15px; font-weight: 600;
+    color: var(--ink-soft); background: none; border: none; border-bottom: 2.5px solid transparent;
+    cursor: pointer;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ===== practice ===== */
+  #panel-practice { display: none; flex-direction: column; min-height: 100%; }
+  #panel-practice.active { display: flex; }
+
+  .status-strip {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 6px 0 14px; min-height: 56px;
+  }
+  .status-icon { font-size: 30px; line-height: 1; }
+  .status-icon.pulse { animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: .65; } }
+  .status-label { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .status-sub { font-size: 12px; color: var(--ink-soft); }
+
+  .transcript {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; min-height: 76px; font-size: 19px; line-height: 1.5;
+    font-family: Georgia, "Times New Roman", serif;
+  }
+  .transcript .interim { color: var(--ink-soft); }
+  .transcript .placeholder { color: #b9b4a8; font-size: 15px; font-family: -apple-system, sans-serif; }
+  .shadow-lbl { font-size: 12px; font-weight: 700; color: #6d5f96; font-family: -apple-system, sans-serif; margin-bottom: 4px; }
+  .shadow-target { font-family: Georgia, "Times New Roman", serif; font-size: 19px; line-height: 1.5; }
+  .shadow-attempt { display: block; margin-top: 8px; font-size: 16px; }
+  .shadow-miss { font-size: 13px; margin-top: 8px; color: var(--ink-soft); font-family: -apple-system, sans-serif; }
+  .shadow-miss .miss { color: var(--danger); font-weight: 700; font-family: Georgia, serif; font-size: 15px; }
+
+  .feedback { margin-top: 14px; }
+  .fb-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px;
+  }
+  .fb-praise {
+    font-family: Georgia, "Times New Roman", serif; font-style: italic;
+    font-size: 24px; font-weight: 700; color: var(--accent); margin-bottom: 4px;
+  }
+  .fb-verdict { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .fb-verdict.ok { color: var(--accent); }
+  .fb-verdict.ng { color: var(--danger); }
+  .fb-label { font-size: 12px; font-weight: 700; color: var(--ink-soft); letter-spacing: .04em; margin-bottom: 4px; }
+  .fb-en {
+    font-family: Georgia, "Times New Roman", serif; font-size: 18px; line-height: 1.5;
+    display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px;
+  }
+  .fb-en:last-child { margin-bottom: 0; }
+  .fb-en .txt { flex: 1; padding-top: 2px; }
+  .fb-ja { font-size: 14px; line-height: 1.7; color: var(--ink); }
+  .play-btn {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--line); background: var(--accent-soft); color: var(--accent);
+    font-size: 14px; cursor: pointer;
+  }
+  .play-btn:active { background: var(--accent); color: #fff; }
+
+  .error-banner {
+    display: none; background: #f7e5df; border: 1px solid #e0b7a9; color: var(--danger);
+    border-radius: var(--radius); padding: 12px 14px; font-size: 14px; line-height: 1.6; margin-bottom: 12px;
+  }
+  .error-banner.show { display: block; }
+
+  .bottom-area {
+    position: sticky; bottom: 0; margin-top: auto;
+    padding: 10px 0 calc(var(--safe-bottom) + 14px);
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    background: var(--bg-current);
+    transition: background-color .4s ease;
+    box-shadow: 0 -18px 14px -14px var(--bg-current);
+  }
+  .handsfree-row { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+  .switch { position: relative; width: 50px; height: 30px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .knob {
+    position: absolute; inset: 0; background: #d6d1c5; border-radius: 15px; transition: background .2s;
+  }
+  .switch .knob::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px;
+    background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  }
+  .switch input:checked + .knob { background: var(--accent); }
+  .switch input:checked + .knob::after { transform: translateX(20px); }
+
+  .mic-row { display: flex; align-items: center; justify-content: center; gap: 22px; }
+  .side-slot { width: 60px; display: flex; justify-content: center; }
+  #stop-btn {
+    width: 58px; height: 58px; border-radius: 50%;
+    border: 1.5px solid #d8b0a4; background: var(--card); color: var(--danger);
+    font-size: 19px; line-height: 1.1; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(164,71,47,.18);
+    transition: transform .1s, opacity .2s;
+  }
+  #stop-btn:active { transform: scale(.92); }
+  #stop-btn:disabled { opacity: .35; box-shadow: none; cursor: default; }
+  #stop-btn .stop-label { font-size: 10px; font-weight: 700; }
+  #next-btn {
+    width: 58px; height: 58px; border-radius: 50%;
+    border: 1.5px solid #a9c6bd; background: var(--card); color: var(--accent);
+    font-size: 19px; line-height: 1.1; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(47,107,95,.2);
+    transition: transform .1s, opacity .2s;
+  }
+  #next-btn:active { transform: scale(.92); }
+  #next-btn:disabled { opacity: .35; box-shadow: none; cursor: default; }
+  #next-btn .stop-label { font-size: 10px; font-weight: 700; }
+  #mic-btn {
+    width: 92px; height: 92px; border-radius: 50%; border: none;
+    background: var(--accent); color: #fff; font-size: 40px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(47,107,95,.35);
+    transition: transform .1s, background .25s;
+  }
+  #mic-btn:active { transform: scale(.94); }
+  #mic-btn.listening { background: var(--danger); box-shadow: 0 4px 14px rgba(164,71,47,.4); animation: micglow 1.4s ease-in-out infinite; }
+  #mic-btn:disabled { background: #c8c3b7; box-shadow: none; }
+  @keyframes micglow { 0%,100% { box-shadow: 0 4px 14px rgba(164,71,47,.4); } 50% { box-shadow: 0 4px 26px rgba(164,71,47,.75); } }
+  .mic-hint { font-size: 13px; color: var(--ink-soft); }
+
+  /* ===== history ===== */
+  .hist-empty { color: var(--ink-soft); font-size: 14px; text-align: center; padding: 40px 0; }
+  .hist-item {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .hist-date { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .hist-del { background: none; border: none; color: var(--danger); font-size: 13px; cursor: pointer; padding: 4px 6px; }
+  .hist-spoken { font-family: Georgia, serif; font-size: 16px; margin-bottom: 8px; color: var(--ink-soft); }
+  .hist-spoken::before { content: "🗣 "; font-size: 13px; }
+  .hist-meaning { font-size: 12px; color: var(--ink-soft); margin: -4px 0 8px; }
+  .hist-exp { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; }
+  .hist-exp summary {
+    font-size: 13px; font-weight: 700; color: var(--accent); cursor: pointer;
+    list-style: none; -webkit-user-select: none; user-select: none;
+  }
+  .hist-exp summary::-webkit-details-marker { display: none; }
+  .hist-exp summary::before { content: "▸ "; }
+  .hist-exp[open] summary::before { content: "▾ "; }
+  .hist-exp .fb-ja { margin-top: 6px; }
+  .hist-exp .fb-label { margin-top: 10px; }
+
+  /* ===== settings ===== */
+  .set-group { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+  .set-title { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .set-note { font-size: 12px; color: var(--ink-soft); line-height: 1.6; margin-top: 8px; }
+  .set-input {
+    width: 100%; padding: 11px 12px; font-size: 15px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--bg); color: var(--ink);
+  }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    flex: 1; padding: 10px 0; font-size: 14px; font-weight: 600; border: none;
+    background: var(--card); color: var(--ink-soft); cursor: pointer;
+  }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .row-2 { display: flex; gap: 8px; align-items: center; }
+  .lang-seg { width: 300px; }
+  .lang-seg button { font-size: 12.5px; padding: 8px 0; }
+  #question-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 12px 14px 10px; margin-bottom: 10px;
+  }
+  .q-ja { font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+  .ghost-btn {
+    padding: 11px 14px; font-size: 14px; font-weight: 600; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--card); color: var(--accent); cursor: pointer; flex: none;
+  }
+  .cmd-table { border-collapse: collapse; width: 100%; }
+  .cmd-table td { padding: 7px 0; font-size: 13px; line-height: 1.55; vertical-align: top; border-bottom: 1px dashed var(--line); }
+  .cmd-table tr:last-child td { border-bottom: none; }
+  .cmd-table .cmd { font-family: Georgia, serif; font-weight: 700; color: var(--accent); white-space: nowrap; padding-right: 12px; }
+  .cmd-sub { font-size: 11px; color: var(--ink-soft); }
+  .save-flash { font-size: 12px; color: var(--accent); margin-top: 6px; visibility: hidden; }
+  .save-flash.show { visibility: visible; }
+
+  /* unsupported overlay */
+  #unsupported {
+    display: none; position: fixed; inset: 0; z-index: 100; background: var(--bg);
+    padding: 40px 28px; text-align: center;
+  }
+  #unsupported.show { display: block; }
+  #unsupported h2 { font-size: 20px; margin: 24px 0 12px; }
+  #unsupported p { font-size: 15px; line-height: 1.8; color: var(--ink-soft); }
+</style>
+</head>
+<body data-state="idle">
+
+<div id="unsupported">
+  <div style="font-size:56px; margin-top:60px;">🎙️</div>
+  <h2>Safariで開いてください</h2>
+  <p>このブラウザでは音声認識（Web Speech API）が利用できません。<br>
+  iPhoneの<strong>Safari</strong>でこのページを開き直してください。</p>
+</div>
+
+<div class="app">
+  <header>
+    <nav class="tabs">
+      <button class="tab active" data-tab="practice">練習</button>
+      <button class="tab" data-tab="history">履歴</button>
+      <button class="tab" data-tab="settings">設定</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== 練習 ===== -->
+    <section id="panel-practice" class="panel active">
+      <div class="status-strip">
+        <span class="status-icon" id="status-icon">🎤</span>
+        <span>
+          <span class="status-label" id="status-label">タップして話す</span><br>
+          <span class="status-sub" id="status-sub">英語で今の行動や気持ちを言ってみましょう</span>
+        </span>
+      </div>
+
+      <div class="error-banner" id="error-banner"></div>
+
+      <div id="question-card" style="display:none"></div>
+
+      <div class="transcript" id="transcript">
+        <span class="placeholder">ここに認識された英語が表示されます</span>
+      </div>
+
+      <div class="feedback" id="feedback"></div>
+
+      <div class="bottom-area">
+        <div class="seg lang-seg" id="lang-seg">
+          <button data-lang="en" class="on">英作文</button>
+          <button data-lang="ja">日本語ヘルプ</button>
+          <button data-lang="talk">会話</button>
+        </div>
+        <label class="handsfree-row">
+          ハンズフリー
+          <span class="switch">
+            <input type="checkbox" id="handsfree-toggle">
+            <span class="knob"></span>
+          </span>
+        </label>
+        <div class="mic-row">
+          <span class="side-slot">
+            <button id="next-btn" aria-label="次へ" disabled>⏭<span class="stop-label">次へ</span></button>
+          </span>
+          <button id="mic-btn" aria-label="マイク">🎤</button>
+          <span class="side-slot">
+            <button id="stop-btn" aria-label="終了" disabled>⏹<span class="stop-label">終了</span></button>
+          </span>
+        </div>
+        <span class="mic-hint" id="mic-hint">タップで録音開始 → もう一度タップで確定</span>
+      </div>
+    </section>
+
+    <!-- ===== 履歴 ===== -->
+    <section id="panel-history" class="panel">
+      <div id="history-list"></div>
+    </section>
+
+    <!-- ===== 設定 ===== -->
+    <section id="panel-settings" class="panel">
+      <div class="set-group">
+        <div class="set-title">Anthropic APIキー</div>
+        <div class="row-2">
+          <input class="set-input" type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+          <button class="ghost-btn" id="key-toggle">表示</button>
+        </div>
+        <div class="set-note">🔒 キーはこの端末（ブラウザ内）にのみ保存されます。外部に送信されるのは Anthropic API への添削リクエストのみです。</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">シャドーイング練習</div>
+        <div class="seg" id="shadow-seg">
+          <button data-shadow="on" class="on">する</button>
+          <button data-shadow="off">しない</button>
+        </div>
+        <div class="set-note">添削のあと、お手本フレーズを発音する練習に入ります。判定は寛容です（似た発音・a や the などの言い落としはOK。2回つまずいたら自動で先へ進みます）。“next”と言うか、マイク横の⏭ボタンでいつでも次の文の録音へ進めます。</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">添削の速さ</div>
+        <div class="seg" id="model-seg">
+          <button data-model="sonnet" class="on">品質重視（標準）</button>
+          <button data-model="haiku">スピード重視</button>
+        </div>
+        <div class="set-note">スピード重視は軽量モデル（Haiku）を使い、応答が速く料金も安くなります。解説の質は標準の方が上です。</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">読み上げ速度</div>
+        <div class="seg" id="rate-seg">
+          <button data-rate="0.7">0.7x</button>
+          <button data-rate="1.0" class="on">1.0x</button>
+          <button data-rate="1.2">1.2x</button>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">解説の詳しさ</div>
+        <div class="seg" id="detail-seg">
+          <button data-detail="brief" class="on">簡潔</button>
+          <button data-detail="detailed">詳しく</button>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">音声コマンド一覧</div>
+        <table class="cmd-table">
+          <tr><td class="cmd">“reset”</td><td>言い直し。聞き取り中に文末に付けて言うと、それまでの内容を破棄して聞き取りをやり直す<br><span class="cmd-sub">（“scratch that”／日本語ヘルプ中は「やり直し」「リセット」でも可）</span></td></tr>
+          <tr><td class="cmd">“next”</td><td>シャドーイングを終えて、次の文の聞き取りへ進む<br><span class="cmd-sub">（マイクボタンのタップ、または⏭ボタンでも同じ。⏭は添削待ち・読み上げ中にも使えます）</span></td></tr>
+          <tr><td class="cmd">“stop”</td><td>練習を終了する。聞き取り中・シャドーイング中いつでも使え、ハンズフリーも解除される<br><span class="cmd-sub">（“finish”／「ストップ」「終了」でも可）</span></td></tr>
+        </table>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">読み上げの確認</div>
+        <div class="row-2">
+          <button class="ghost-btn" id="tts-test" style="flex:1">🔊 テスト音声を再生</button>
+        </div>
+        <div class="set-note" id="tts-note">音が出ないときは順に確認: ① マナーモード（本体横の消音スイッチ）をオフにする ※iPhoneの読み上げは消音中は鳴りません ② 音量を上げる ③ AirPodsの接続先を確認 ④ アプリを完全に閉じて開き直す</div>
+      </div>
+
+      <div class="save-flash" id="save-flash">✓ 保存しました</div>
+    </section>
+  </main>
+</div>
+
+<script>
+"use strict";
+/* =====================================================================
+ * 瞬間英作文トレーナー
+ * 話す → Claude APIで添削 → 読み上げ → localStorageに記録
+ * ===================================================================== */
+
+const $ = (id) => document.getElementById(id);
+
+/* ---------- storage ---------- */
+const KEYS = { key: "ess_api_key", settings: "ess_settings", history: "ess_history" };
+const store = {
+  getKey: () => localStorage.getItem(KEYS.key) || "",
+  setKey: (v) => localStorage.setItem(KEYS.key, v),
+  getSettings() {
+    const def = { rate: 1.0, detail: "brief", model: "sonnet", shadow: "on" };
+    try { return Object.assign(def, JSON.parse(localStorage.getItem(KEYS.settings) || "{}")); }
+    catch { return def; }
+  },
+  setSettings(s) { localStorage.setItem(KEYS.settings, JSON.stringify(s)); },
+  getHistory() {
+    try { return JSON.parse(localStorage.getItem(KEYS.history) || "[]"); }
+    catch { return []; }
+  },
+  setHistory(h) { localStorage.setItem(KEYS.history, JSON.stringify(h)); },
+};
+let settings = store.getSettings();
+
+/* ---------- app state ---------- */
+/* idle | listening | processing | speaking */
+let state = "idle";
+let handsFree = false;
+/* speaking中の内訳: "question"（会話モードの質問）| "feedback" | "shadow" */
+let speakPhase = null;
+/* 入力モード: "en"=英語で話して添削 / "ja"=日本語で言いたいことを話して英訳 / "talk"=会話モード */
+let lang = "en";
+const LANG_CODE = { en: "en-US", ja: "ja-JP", talk: "en-US" };
+
+/* ---------- 会話モードの状態 ---------- */
+let currentQuestion = null;  /* {q, ja} いまの質問 */
+let convHistory = [];        /* 直近の {q, a} を最大6件 */
+
+const STARTER_QUESTIONS = [
+  ["What did you do this morning?", "今朝は何をしましたか？"],
+  ["What are you going to eat for dinner tonight?", "今夜の夕食は何を食べる予定ですか？"],
+  ["How's the weather over there today?", "そちらの今日の天気はどうですか？"],
+  ["What do you usually do on weekends?", "週末はいつも何をしていますか？"],
+  ["What's your favorite way to relax?", "お気に入りのリラックス方法は何ですか？"],
+  ["Did anything good happen this week?", "今週なにか良いことはありましたか？"],
+  ["What kind of food do you like?", "どんな食べ物が好きですか？"],
+  ["What are your plans for tomorrow?", "明日の予定は何ですか？"],
+  ["What did you watch or read recently?", "最近なにを見たり読んだりしましたか？"],
+  ["Where do you want to travel someday?", "いつか旅行してみたい場所はどこですか？"],
+  ["What time did you get up today?", "今日は何時に起きましたか？"],
+  ["What's something you're looking forward to?", "いま楽しみにしていることは何ですか？"],
+];
+
+function ensureQuestion() {
+  if (!currentQuestion) {
+    const s = STARTER_QUESTIONS[Math.floor(Math.random() * STARTER_QUESTIONS.length)];
+    currentQuestion = { q: s[0], ja: s[1] };
+  }
+}
+
+function renderQuestionCard(label) {
+  const el = $("question-card");
+  if (lang !== "talk" || !currentQuestion) { el.style.display = "none"; return; }
+  el.style.display = "block";
+  el.innerHTML = "";
+  const l = document.createElement("div");
+  l.className = "fb-label";
+  l.textContent = label || "🗨️ 質問";
+  el.append(l, enRow(currentQuestion.q));
+  if (currentQuestion.ja) {
+    const j = document.createElement("div");
+    j.className = "q-ja";
+    j.textContent = currentQuestion.ja;
+    el.append(j);
+  }
+}
+
+function resetConversation() {
+  convHistory = [];
+  currentQuestion = null;
+  $("question-card").style.display = "none";
+}
+
+const STATUS = {
+  idle:       { icon: "🎤", label: "タップして話す",   sub: "英語で今の行動や気持ちを言ってみましょう", pulse: false },
+  listening:  { icon: "🟢", label: "聞き取り中…",     sub: "タップで確定・間違えたら“reset”でやり直し", pulse: true },
+  processing: { icon: "⏳", label: "添削中…",         sub: "Claudeが英文をチェックしています", pulse: true },
+  speaking:   { icon: "🔊", label: "読み上げ中…",     sub: "お手本を聞きましょう", pulse: true },
+  shadowing:  { icon: "🔁", label: "シャドーイング",   sub: "お手本に続けて発音（“next”か⏭ボタンで次へ）", pulse: true },
+};
+
+function setState(next) {
+  state = next;
+  document.body.dataset.state = next;
+  const s = STATUS[next];
+  $("status-icon").textContent = s.icon;
+  $("status-icon").classList.toggle("pulse", s.pulse);
+  $("status-label").textContent = s.label;
+  $("status-sub").textContent =
+    next === "listening" && lang === "ja" ? (handsFree ? "日本語でどうぞ。2秒黙ると自動で英訳（「やり直し」で言い直し）" : "言いたいことを日本語でどうぞ（「やり直し」で言い直し）") :
+    next === "listening" && lang === "talk" ? (handsFree ? "質問に英語で答えて。2秒黙ると確定（reset/stop可）" : "質問に英語で答えて、タップで確定") :
+    next === "listening" && handsFree ? "2秒黙ると自動で確定（“reset”でやり直し・“stop”で終了）" :
+    next === "idle" && handsFree ? "ハンズフリー待機中" :
+    next === "idle" && lang === "ja" ? "言いたいことを日本語で話すと英語表現を教えます" :
+    next === "idle" && lang === "talk" ? "会話モード：マイクをタップすると質問から始まります" : s.sub;
+  const mic = $("mic-btn");
+  mic.classList.toggle("listening", next === "listening");
+  mic.disabled = (next === "processing");
+  $("stop-btn").disabled = (next === "idle" && !handsFree);
+  /* ⏭次へ: 添削待ち・フィードバック読み上げ・シャドーイング中に使える
+   * （会話モードの質問読み上げ中は対象外） */
+  $("next-btn").disabled = !(next === "shadowing" || next === "processing" ||
+                             (next === "speaking" && speakPhase !== "question"));
+  mic.textContent = next === "listening" ? "⏹" : next === "speaking" ? "🔇" : next === "shadowing" ? "⏭" : "🎤";
+  $("mic-hint").textContent =
+    next === "listening" ? (handsFree ? "話し終えると自動で添削されます" : "もう一度タップで確定") :
+    next === "shadowing" ? "“next”と言うかタップで次の録音へ" :
+    next === "speaking" ? "タップで読み上げを停止（⏭で次の英作へ）" :
+    next === "processing" ? "お待ちください…（⏭で飛ばして次の英作へ）" :
+    handsFree ? "ハンズフリー中：自動で聞き取りが始まります" : "タップで録音開始 → もう一度タップで確定";
+}
+
+/* ---------- error banner ---------- */
+let errorTimer = null;
+function showError(msg, sticky) {
+  const b = $("error-banner");
+  b.textContent = msg;
+  b.classList.add("show");
+  clearTimeout(errorTimer);
+  if (!sticky) errorTimer = setTimeout(hideError, 8000);
+}
+function hideError() { $("error-banner").classList.remove("show"); }
+
+/* =====================================================================
+ * 音声認識
+ * ===================================================================== */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) $("unsupported").classList.add("show");
+
+let rec = null;
+let recRunning = false;
+let baseFinal = "";   // 過去の認識セッション分（onendで折りたたむ）
+let sessFinal = "";   // 現セッションの確定分
+let interim = "";     // 現セッションの暫定分
+let silenceTimer = null;
+const SILENCE_MS = 2000;
+const SHADOW_SILENCE_MS = 1600;   /* シャドーイング中の確定はややきびきびと */
+const SHADOW_WAIT_MS = 8000;      /* 無反応ならお手本を再再生 */
+
+function currentText() {
+  return (baseFinal + " " + sessFinal + " " + interim).replace(/\s+/g, " ").trim();
+}
+
+function updateTranscript() {
+  if (state === "shadowing" && shadow) {
+    renderShadowView(currentText(), shadow.lastMiss);
+    return;
+  }
+  const el = $("transcript");
+  const fixed = (baseFinal + " " + sessFinal).replace(/\s+/g, " ").trim();
+  if (!fixed && !interim.trim()) {
+    el.innerHTML = '<span class="placeholder">ここに認識された英語が表示されます</span>';
+    return;
+  }
+  el.innerHTML = "";
+  el.append(document.createTextNode(fixed ? fixed + " " : ""));
+  const i = document.createElement("span");
+  i.className = "interim";
+  i.textContent = interim;
+  el.append(i);
+}
+
+function clearBuffers() {
+  baseFinal = sessFinal = interim = "";
+  clearTimeout(silenceTimer);
+  silenceTimer = null;
+}
+
+function makeRecognition() {
+  const r = new SR();
+  r.lang = LANG_CODE[lang];
+  r.continuous = true;
+  r.interimResults = true;
+
+  r.onresult = (e) => {
+    if (state !== "listening" && state !== "shadowing") return;
+    sessFinal = ""; interim = "";
+    for (let i = 0; i < e.results.length; i++) {
+      const res = e.results[i];
+      if (res.isFinal) sessFinal += res[0].transcript;
+      else interim += res[0].transcript;
+    }
+    updateTranscript();
+    if (currentText() && (state === "shadowing" || (handsFree && state === "listening"))) resetSilenceTimer();
+  };
+
+  r.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      showError("マイクの使用が許可されていません。設定アプリ → Safari → マイク で許可するか、ページ再読み込み時に「許可」を選んでください。", true);
+      exitHandsFree(false);
+      setState("idle");
+    }
+    /* "no-speech" / "aborted" は onend の自動再開に任せる */
+  };
+
+  /* iOSのSpeech Recognitionは勝手に止まることがある → listening中なら自動再起動 */
+  r.onend = () => {
+    recRunning = false;
+    baseFinal = (baseFinal + " " + sessFinal + " " + interim).replace(/\s+/g, " ").trim();
+    sessFinal = ""; interim = "";
+    if (state === "listening" || state === "shadowing") {
+      setTimeout(() => { if (state === "listening" || state === "shadowing") startRecognition(); }, 250);
+    }
+  };
+  return r;
+}
+
+function startRecognition() {
+  if (!SR || recRunning) return;
+  if (!rec) rec = makeRecognition();
+  try {
+    rec.start();
+    recRunning = true;
+  } catch (_) {
+    /* すでに開始済み等。次のonendで再起動される */
+  }
+}
+
+function stopRecognition() {
+  clearTimeout(silenceTimer);
+  silenceTimer = null;
+  if (rec && recRunning) {
+    try { rec.abort(); } catch (_) {}
+  }
+  recRunning = false;
+}
+
+function resetSilenceTimer() {
+  clearTimeout(silenceTimer);
+  if (state === "shadowing") {
+    silenceTimer = setTimeout(() => {
+      if (state === "shadowing") finalizeShadowAttempt();
+    }, SHADOW_SILENCE_MS);
+  } else {
+    silenceTimer = setTimeout(() => {
+      if (state === "listening" && handsFree) finalizeUtterance();
+    }, SILENCE_MS);
+  }
+}
+
+function beginListening() {
+  if (shadow) exitShadow();
+  hideError();
+  clearBuffers();
+  updateTranscript();
+  $("feedback").innerHTML = "";
+
+  /* 会話モード: 質問を読み上げてから聞き取りを始める */
+  if (lang === "talk") {
+    ensureQuestion();
+    renderQuestionCard();
+    speakPhase = "question";
+    setState("speaking");
+    speak([currentQuestion.q], () => {
+      if (state === "speaking") { setState("listening"); startRecognition(); }
+    });
+    return;
+  }
+
+  setState("listening");
+  startRecognition();
+}
+
+function finalizeUtterance() {
+  const text = currentText();
+  stopRecognition();
+  clearBuffers();
+
+  if (!text) {
+    if (handsFree) { beginListening(); } else { setState("idle"); }
+    return;
+  }
+
+  /* 音声コマンドで終了（ハンズフリーでも手動でも） */
+  const cmd = text.toLowerCase().replace(/[.,!?。、！？\s]+$/g, "").trim();
+  if (cmd === "stop" || cmd === "stop it" || cmd === "finish" || cmd === "ストップ" || cmd === "終了") {
+    if (handsFree) {
+      exitHandsFree(true);
+    } else {
+      setState("idle");
+      updateTranscriptIdle();
+    }
+    return;
+  }
+
+  /* 「reset」で言い直し（英作の途中で間違えたとき用）。
+   * 文末に reset を付けて言えば、それまでの内容を破棄して聞き取りをやり直す */
+  const cmdRaw = text.replace(/[.,!?。、！？\s]+$/g, "").trim();
+  if (cmd === "reset" || cmd.endsWith(" reset") || cmd.endsWith("scratch that") ||
+      cmdRaw.endsWith("リセット") || cmdRaw.endsWith("やり直し")) {
+    setState("speaking");
+    speak(["OK!"], () => beginListening());
+    return;
+  }
+
+  $("transcript").textContent = text;
+  submit(text);
+}
+
+/* =====================================================================
+ * Claude API 添削
+ * ===================================================================== */
+const API_URL = "https://api.anthropic.com/v1/messages";
+const MODELS = { sonnet: "claude-sonnet-4-6", haiku: "claude-haiku-4-5" };
+
+function systemPrompt(mode) {
+  const detail = settings.detail === "detailed"
+    ? "explanationは日本語で4〜6文。誤りの理由・ニュアンスの違い・関連表現まで丁寧に説明してください。"
+    : "explanationは日本語で2〜3文。簡潔に要点だけ説明してください。";
+
+  if (mode === "ja") {
+    return `あなたは日本人学習者向けの英会話コーチです。学習者は、英語でどう言えばいいか分からない内容を日本語で話します（音声入力の結果が与えられます）。それを日常会話で自然な英語表現にしてください。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
+
+必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
+
+{
+  "correct": true,
+  "corrected": "",
+  "natural": ["最も自然で口語的な英語表現を1案だけ。学習者がそのまま声に出して使える完全な文にすること"],
+  "explanation": "日本語での解説。キーとなる単語・フレーズの意味と使い方。${detail}",
+  "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（余裕があれば。なければ空文字）"
+}
+
+注意:
+- 入力は音声認識の結果なので、誤変換と思われる場合は意図を推測して英訳すること。
+- 直訳ではなく、ネイティブが実際の会話で使う言い方にすること。`;
+  }
+
+  if (mode === "talk") {
+    return `あなたは日本人学習者の英会話パートナー兼コーチです。あなたが英語で質問し、学習者が英語で答える会話練習をしています。「あなたの質問」と「学習者の回答（音声認識の結果）」、それまでの会話履歴が与えられます。回答へのフィードバックと、会話を続けるための次の質問を返してください。励ましすぎず、率直で的確に。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
+
+必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
+
+{
+  "praise": "回答の英文の出来に応じた英語のひとこと評価（Perfect!/Excellent!/Good!/Nice try! など。出来に応じて正直に）",
+  "meaning_ja": "学習者の回答（聞き取られた英文）をそのまま忠実に日本語訳した1文",
+  "correct": true または false（文法的に通じるか）,
+  "corrected": "誤りがあれば修正した英文。なければ元の文のまま",
+  "natural": ["ネイティブならこう答える、というより自然な表現を1案だけ"],
+  "explanation": "日本語での解説。${detail}",
+  "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（なければ空文字）",
+  "next_question": "会話を続ける次の英語の質問。回答の内容に自然につながるフォローアップを優先し、同じ話題が続いたら新しい身近な話題へ。短くシンプルな1文（中学英語レベル）",
+  "next_question_ja": "next_questionの日本語訳"
+}
+
+注意:
+- 回答は音声認識の結果なので、誤変換と思われる場合は意図を推測して添削すること。
+- 質問攻めにならないよう、next_questionは1つだけ。学習者が答えやすい具体的な質問にすること。`;
+  }
+
+  return `あなたは日本人学習者向けの英会話コーチです。学習者が音声入力で話した英文が与えられます。励ましすぎず、率直で的確なフィードバックをしてください。学習者は成人で、読解力は高いですが会話の瞬発力を鍛えている段階です。
+
+必ず次のJSON形式のみで応答してください。JSON以外の文字（前置き、コードフェンス、補足）は一切出力しないでください。
+
+{
+  "praise": "英文の出来に応じた英語のひとこと評価。例: Perfect! / Excellent! / Great sentence! / Good! / Nice try! 出来に応じて正直に選ぶこと（毎回最上級にしない。完璧で自然ならPerfect!やExcellent!、通じるが改善余地ありならGood!、誤りが多ければNice try!など）",
+  "meaning_ja": "与えられた英文（＝音声認識が聞き取った文）をそのまま忠実に日本語訳した1文。学習者が『自分の文がどう認識・解釈されたか』を確認するためのものなので、意図を推測して直さず聞き取られた通りに訳すこと",
+  "correct": true または false（文法的に通じるかどうか）,
+  "corrected": "誤りがあれば修正した英文。誤りがなければ元の文をそのまま",
+  "natural": ["ネイティブならこう言う、というより自然な表現を1案だけ"],
+  "explanation": "日本語での解説。なぜその表現が良いのか。${detail}",
+  "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（余裕があれば。なければ空文字）"
+}
+
+注意:
+- 入力は音声認識の結果なので、大文字小文字や句読点の欠落は誤りとして扱わないこと。
+- 明らかな音声認識の誤変換と思われる場合は、意図を推測して添削すること。`;
+}
+
+async function callClaude(text, mode) {
+  const apiKey = store.getKey();
+  /* 会話モードでは質問と会話履歴を文脈として渡す */
+  let content = text;
+  if (mode === "talk") {
+    const hist = convHistory.map(h => `Q: ${h.q}\nA: ${h.a}`).join("\n");
+    content = (hist ? "これまでの会話:\n" + hist + "\n\n" : "")
+      + "あなたの質問: " + (currentQuestion ? currentQuestion.q : "")
+      + "\n学習者の回答: " + text;
+  }
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: MODELS[settings.model] || MODELS.sonnet,
+      max_tokens: 1024,
+      system: systemPrompt(mode),
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).error?.message || ""; } catch (_) {}
+    const err = new Error(detail || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = await res.json();
+  let raw = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  /* コードフェンスや前置きが混ざっても最初の { 〜 最後の } を拾う */
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("応答の形式が想定外でした");
+  const fb = JSON.parse(raw.slice(start, end + 1));
+  fb.natural = Array.isArray(fb.natural) ? fb.natural : (fb.natural ? [String(fb.natural)] : []);
+  fb.praise = typeof fb.praise === "string" ? fb.praise.trim() : "";
+  fb.meaning_ja = typeof fb.meaning_ja === "string" ? fb.meaning_ja.trim() : "";
+  fb.next_question = typeof fb.next_question === "string" ? fb.next_question.trim() : "";
+  fb.next_question_ja = typeof fb.next_question_ja === "string" ? fb.next_question_ja.trim() : "";
+  return fb;
+}
+
+let submitSession = 0;
+
+async function submit(text) {
+  if (!store.getKey()) {
+    showError("APIキーが設定されていません。「設定」タブで Anthropic APIキーを入力してください。", true);
+    setState("idle");
+    if (handsFree) exitHandsFree(false);
+    switchTab("settings");
+    return;
+  }
+  if (!navigator.onLine) {
+    showError("オフラインのため添削できません。履歴の閲覧は可能です。通信環境のある場所でお試しください。");
+    afterFeedbackDone();
+    return;
+  }
+
+  const mode = lang;
+  const session = ++submitSession; /* 終了ボタンで結果を破棄できるように */
+  setState("processing");
+  let fb;
+  try {
+    fb = await callClaude(text, mode);
+  } catch (err) {
+    if (session !== submitSession) return; /* 終了済みなら黙って破棄 */
+    if (err.status === 401 || err.status === 403) {
+      showError("APIキーが正しくないようです。「設定」タブでキーを確認してください。", true);
+    } else if (err.status === 429) {
+      showError("リクエストが多すぎます。少し待ってからもう一度お試しください。");
+    } else if (err.status >= 500) {
+      showError("Anthropic側で一時的な問題が起きています。しばらくして再試行してください。");
+    } else if (err instanceof TypeError) {
+      showError("通信エラーが発生しました。ネットワーク接続を確認してください。");
+    } else {
+      showError("添削に失敗しました：" + err.message);
+    }
+    afterFeedbackDone();
+    return;
+  }
+  if (session !== submitSession) return; /* 添削中に終了ボタンが押された */
+
+  const answeredQ = (mode === "talk" && currentQuestion) ? currentQuestion.q : "";
+  renderFeedback(text, fb, mode);
+  saveToHistory(text, fb, mode, answeredQ);
+
+  /* 会話モード: 履歴に積んで、次の質問を用意 */
+  if (mode === "talk") {
+    convHistory.push({ q: answeredQ, a: text });
+    if (convHistory.length > 6) convHistory.shift();
+    currentQuestion = fb.next_question
+      ? { q: fb.next_question, ja: fb.next_question_ja }
+      : null; /* 無ければ次回スターターから */
+    renderQuestionCard("🗨️ 次の質問");
+  }
+
+  speakFeedback(fb);
+}
+
+/* 処理後の遷移（エラー時・読み上げ完了時 共通） */
+function afterFeedbackDone() {
+  if (handsFree) {
+    beginListening();
+  } else {
+    setState("idle");
+  }
+}
+
+/* =====================================================================
+ * フィードバック表示
+ * ===================================================================== */
+function enRow(text) {
+  const row = document.createElement("div");
+  row.className = "fb-en";
+  const btn = document.createElement("button");
+  btn.className = "play-btn";
+  btn.textContent = "▶";
+  btn.onclick = () => speak([text]);
+  const span = document.createElement("span");
+  span.className = "txt";
+  span.textContent = text;
+  row.append(btn, span);
+  return row;
+}
+
+function renderFeedback(spoken, fb, mode) {
+  const wrap = $("feedback");
+  wrap.innerHTML = "";
+
+  const card = document.createElement("div");
+  card.className = "fb-card";
+
+  if (mode !== "ja" && fb.praise) {
+    const p = document.createElement("div");
+    p.className = "fb-praise";
+    p.textContent = fb.praise;
+    card.append(p);
+  }
+
+  const verdict = document.createElement("div");
+  if (mode === "ja") {
+    verdict.className = "fb-verdict ok";
+    verdict.textContent = "💡 英語ではこう言います";
+  } else {
+    verdict.className = "fb-verdict " + (fb.correct ? "ok" : "ng");
+    verdict.textContent = fb.correct ? "✓ 通じます" : "✗ 修正ポイントがあります";
+  }
+  card.append(verdict);
+
+  if (mode !== "ja" && fb.meaning_ja) {
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "聞き取った文の意味";
+    const p = document.createElement("div");
+    p.className = "fb-ja"; p.textContent = fb.meaning_ja;
+    p.style.marginBottom = "8px";
+    card.append(l, p);
+  }
+
+  if (mode !== "ja" && !fb.correct && fb.corrected) {
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "修正";
+    card.append(l, enRow(fb.corrected));
+  }
+
+  if (fb.natural.length) {
+    const l = document.createElement("div");
+    l.className = "fb-label";
+    l.textContent = mode === "ja" ? "英語表現" : "ネイティブならこう言う";
+    card.append(l);
+    fb.natural.forEach(n => card.append(enRow(n)));
+  }
+  wrap.append(card);
+
+  if (fb.explanation) {
+    const c2 = document.createElement("div");
+    c2.className = "fb-card";
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "解説";
+    const p = document.createElement("div");
+    p.className = "fb-ja"; p.textContent = fb.explanation;
+    c2.append(l, p);
+    wrap.append(c2);
+  }
+
+  if (fb.level_up) {
+    const c3 = document.createElement("div");
+    c3.className = "fb-card";
+    const l = document.createElement("div");
+    l.className = "fb-label"; l.textContent = "レベルアップ表現";
+    c3.append(l, enRow(fb.level_up));
+    wrap.append(c3);
+  }
+}
+
+/* =====================================================================
+ * 読み上げ（speechSynthesis）
+ * ===================================================================== */
+let voices = [];
+function loadVoices() { voices = speechSynthesis.getVoices(); }
+if ("speechSynthesis" in window) {
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+}
+function pickVoice(langCode) {
+  langCode = langCode || "en-US";
+  const base = langCode.split("-")[0];
+  return voices.find(v => v.lang === langCode && v.localService)
+      || voices.find(v => v.lang === langCode)
+      || voices.find(v => v.lang && v.lang.startsWith(base))
+      || null;
+}
+
+/* items を順に読む。各要素は文字列（en-US）または {text, lang, rate}。
+ * onAllDone は全文終了時に一度だけ。rate省略時は設定値。
+ *
+ * iOS Safariの speechSynthesis は
+ *  - 一時停止状態のまま固まって無音になる
+ *  - onend/onerror が発火せず進まなくなる
+ * ことがあるため、resume()の定期実行と、文の長さに応じた
+ * 番犬タイマー（時間切れで強制的に次へ）で自己回復させる。 */
+let speakSession = 0;       /* 世代トークン。古いタイマーが新しい再生を壊さないように */
+let currentUtterance = null; /* GCでonendが消える問題への参照保持 */
+let resumeTicker = null;
+
+/* iOSは「ユーザー操作の中で一度speak()しないと、その後の自動読み上げを
+ * 無音にする」ことがある。タップ時に無音のダミーを流してロックを解除する */
+let ttsPrimed = false;
+function primeTTS() {
+  if (ttsPrimed || !("speechSynthesis" in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    u.rate = 2;
+    speechSynthesis.speak(u);
+    ttsPrimed = true;
+  } catch (_) {}
+}
+
+function speak(items, onAllDone, rate) {
+  if (!("speechSynthesis" in window) || !items.length) { if (onAllDone) onAllDone(); return; }
+  const session = ++speakSession;
+  speechSynthesis.cancel();
+  clearInterval(resumeTicker);
+  /* 勝手にpausedになった読み上げを復帰させる保険 */
+  resumeTicker = setInterval(() => {
+    try { speechSynthesis.resume(); } catch (_) {}
+  }, 3000);
+
+  let idx = 0;
+  let finished = false;
+  const finishAll = () => {
+    if (finished || session !== speakSession) return;
+    finished = true;
+    clearInterval(resumeTicker);
+    currentUtterance = null;
+    if (onAllDone) onAllDone();
+  };
+
+  const next = () => {
+    if (finished || session !== speakSession) return;
+    if (idx >= items.length) { finishAll(); return; }
+    const it = items[idx++];
+    const isObj = typeof it === "object";
+    const text = isObj ? it.text : it;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = (isObj && it.lang) || "en-US";
+    const v = pickVoice(u.lang);
+    if (v) u.voice = v;
+    u.rate = (isObj && it.rate) || rate || settings.rate;
+
+    let advanced = false;
+    let guard = null;
+    const advance = () => {
+      if (advanced || session !== speakSession) return;
+      advanced = true;
+      clearTimeout(guard);
+      next();
+    };
+    u.onend = advance;
+    u.onerror = advance;
+    /* 番犬: 文字数から見積もった上限時間で強制前進（固まり対策） */
+    const estMs = Math.min(20000, 3000 + (text.length * 130) / (u.rate || 1));
+    guard = setTimeout(() => {
+      if (session !== speakSession) return;
+      try { speechSynthesis.cancel(); } catch (_) {}
+      advance();
+    }, estMs);
+
+    currentUtterance = u;
+    speechSynthesis.speak(u);
+    try { speechSynthesis.resume(); } catch (_) {}
+  };
+
+  /* マイク停止直後の音声セッション切替と競合しないよう少し待つ */
+  setTimeout(next, 150);
+}
+
+/* 画面復帰時にpausedのまま固まっていたら復帰させる */
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && "speechSynthesis" in window) {
+    try { speechSynthesis.resume(); } catch (_) {}
+  }
+});
+
+/* フィードバック読み上げ：認識を必ず停止してから話し、終了後に再開。
+ * テンポ優先で「評価＋日本語訳」だけ読み、お手本はシャドーイング側で読む
+ * （シャドーイングOFF時のみここでお手本を1回読む） */
+function speakFeedback(fb) {
+  stopRecognition();  /* 自分の声（TTS）の誤認識防止 */
+  speakPhase = "feedback";
+  const texts = [];
+  if (fb.praise) texts.push(fb.praise);
+  /* 聞き取った文の日本語訳（認識ズレの確認用）を日本語音声で */
+  if (fb.meaning_ja) texts.push({ text: fb.meaning_ja, lang: "ja-JP", rate: 1.0 });
+
+  const model = (fb.natural && fb.natural[0]) || fb.corrected || "";
+  const willShadow = settings.shadow === "on" && model && SR;
+  if (!willShadow && model) texts.push(model);
+
+  setState("speaking");
+  speak(texts, () => {
+    if (state === "speaking") maybeStartShadowing(fb);
+  });
+}
+
+function stopSpeaking() {
+  speakSession++;              /* 進行中のspeak()の後続処理・番犬を無効化 */
+  clearInterval(resumeTicker);
+  currentUtterance = null;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+
+/* =====================================================================
+ * シャドーイング練習
+ * お手本再生 → 続けて発音 → 認識結果を単語照合 →
+ * 言えなかった部分だけゆっくり再生して部分練習 → 全体に戻る、を繰り返す。
+ * "next" で次の録音へ、"stop" で終了。
+ * ※発音判定は「音声認識がお手本通りに聞き取れたか」による近似。
+ * ===================================================================== */
+let shadow = null; /* { full, chunks, stage, practice, missAttempts, lastMiss } */
+
+/* 長い文を意味の切れ目（句読点・接続詞）で4〜5語のチャンクに分割する。6語以下はそのまま
+ * （耳だけで覚えて復唱できる長さにする） */
+const CHUNK_CONJ = new Set(["and","but","because","so","when","while","before","after","although","though","if","that","which","who","where","then","since","unless","until"]);
+const CHUNK_MAX = 5;
+function chunkPhrase(text) {
+  const words = String(text).trim().split(/\s+/);
+  if (words.length <= 6) return [words.join(" ")];
+  const chunks = [];
+  let cur = [];
+  for (let i = 0; i < words.length; i++) {
+    cur.push(words[i]);
+    const endsPunct = /[,;:]$/.test(words[i]);
+    const next = words[i + 1];
+    const nextConj = next && CHUNK_CONJ.has(next.toLowerCase().replace(/[^a-z']/g, ""));
+    if ((endsPunct && cur.length >= 2) || (nextConj && cur.length >= 3) || cur.length >= CHUNK_MAX) {
+      chunks.push(cur.join(" "));
+      cur = [];
+    }
+  }
+  if (cur.length) {
+    /* 末尾が短すぎる場合、前のチャンクと合わせても短いなら結合する */
+    if (cur.length <= 2 && chunks.length && chunks[chunks.length - 1].split(" ").length + cur.length <= CHUNK_MAX + 1) {
+      chunks[chunks.length - 1] += " " + cur.join(" ");
+    } else {
+      chunks.push(cur.join(" "));
+    }
+  }
+  return chunks;
+}
+
+/* いま練習中のお手本テキスト */
+function shadowTargetText() {
+  if (!shadow) return "";
+  if (shadow.practice) return shadow.practice;
+  if (shadow.stage >= shadow.chunks.length) return shadow.full;
+  return shadow.chunks[shadow.stage];
+}
+
+/* 単語正規化（小文字化・記号除去・短縮形の展開） */
+const CONTRACTIONS = {
+  "i'm":"i am","you're":"you are","it's":"it is","that's":"that is","there's":"there is",
+  "he's":"he is","she's":"she is","we're":"we are","they're":"they are","let's":"let us",
+  "don't":"do not","doesn't":"does not","didn't":"did not","can't":"cannot","won't":"will not",
+  "isn't":"is not","aren't":"are not","wasn't":"was not","weren't":"were not",
+  "i'll":"i will","you'll":"you will","we'll":"we will","i've":"i have","you've":"you have",
+  "i'd":"i would","gonna":"going to","wanna":"want to",
+};
+function normWords(s) {
+  s = String(s).toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[.,!?;:"()\[\]\-—…。、！？「」]/g, " ")
+    .replace(/\s+/g, " ").trim();
+  return s.split(" ").filter(Boolean).flatMap(w => (CONTRACTIONS[w] || w).split(" "));
+}
+
+/* ---- 発音判定の寛容化 ----
+ * 完全一致ではなく「似た音なら正解」とする。
+ * ・同音異義語（to/two, by/buy など）は同一視
+ * ・1〜2文字違い（stopped/stoped, weather/whether など）も許容 */
+const HOMOPHONE = {};
+[
+  ["to","too","two"],["for","four"],["by","buy","bye"],["there","their"],
+  ["right","write"],["one","won"],["see","sea"],["know","no"],["hear","here"],
+  ["our","hour"],["ate","eight"],["meet","meat"],["week","weak"],["wait","weight"],
+  ["would","wood"],["son","sun"],["piece","peace"],["read","red"],["new","knew"],
+  ["weather","whether"],["where","wear"],["your","you're"],["its","it's"],
+].forEach((g, i) => g.forEach(w => { HOMOPHONE[w] = "h" + i; }));
+
+function editDistance(a, b) {
+  const n = a.length, m = b.length;
+  if (Math.abs(n - m) > 2) return 99;
+  const dp = new Array(m + 1);
+  for (let j = 0; j <= m; j++) dp[j] = j;
+  for (let i = 1; i <= n; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
+
+function soundsClose(a, b) {
+  if (a === b) return true;
+  if (HOMOPHONE[a] && HOMOPHONE[a] === HOMOPHONE[b]) return true;
+  if (a.length < 3 || b.length < 3) return false;
+  const d = editDistance(a, b);
+  return d <= (Math.min(a.length, b.length) >= 5 ? 2 : 1);
+}
+
+/* 言えなくても減点しない機能語（冠詞・前置詞・be動詞など。
+ * 発音練習の主目的は内容語なので、these の言い落としで足止めしない） */
+const FUNC_WORDS = new Set([
+  "a","an","the","to","of","in","on","at","for","and","or","but",
+  "is","am","are","was","were","be","been","being",
+  "it","that","this","these","those","there",
+  "my","your","his","her","its","our","their","some","any",
+  "do","does","did","will","would","can","could","have","has","had","not","so",
+]);
+
+/* お手本(target)と発音(attempt)をLCSで照合し、言えていないお手本側の単語indexを返す */
+function diffTarget(target, attempt) {
+  const t = normWords(target), a = normWords(attempt);
+  const n = t.length, m = a.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--)
+    for (let j = m - 1; j >= 0; j--)
+      dp[i][j] = soundsClose(t[i], a[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const miss = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (soundsClose(t[i], a[j])) { i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { miss.push(i); i++; }
+    else j++;
+  }
+  while (i < n) { miss.push(i); i++; }
+  return { tWords: t, miss };
+}
+
+/* お手本表示（要練習の単語は赤字） */
+function renderShadowView(attempt, missWords) {
+  const el = $("transcript");
+  el.innerHTML = "";
+  const lbl = document.createElement("div");
+  lbl.className = "shadow-lbl";
+  if (!shadow) lbl.textContent = "";
+  else if (shadow.practice) lbl.textContent = "🔁 お手本（部分練習・ゆっくり）";
+  else if (shadow.chunks.length > 1 && shadow.stage < shadow.chunks.length)
+    lbl.textContent = `🔁 お手本（${shadow.stage + 1}/${shadow.chunks.length}）`;
+  else lbl.textContent = "🔁 お手本（全体）";
+  const tgt = document.createElement("div");
+  tgt.className = "shadow-target";
+  tgt.textContent = shadowTargetText();
+  el.append(lbl, tgt);
+  if (attempt) {
+    const a = document.createElement("span");
+    a.className = "interim shadow-attempt";
+    a.textContent = "🗣 " + attempt;
+    el.append(a);
+  }
+  if (missWords && missWords.length) {
+    const mrow = document.createElement("div");
+    mrow.className = "shadow-miss";
+    mrow.append("要練習: ");
+    missWords.forEach(w => {
+      const s = document.createElement("span");
+      s.className = "miss";
+      s.textContent = w;
+      mrow.append(s, " ");
+    });
+    el.append(mrow);
+  }
+}
+
+function maybeStartShadowing(fb) {
+  const target = (fb.natural && fb.natural[0]) || fb.corrected || "";
+  if (settings.shadow !== "on" || !target || !SR) { afterFeedbackDone(); return; }
+  shadow = {
+    full: target,
+    chunks: chunkPhrase(target),
+    stage: 0,        /* 0..chunks.length-1 = チャンク練習、chunks.length = 全体通し */
+    practice: null,  /* 部分練習中のテキスト */
+    missAttempts: 0,
+    lastMiss: [],
+  };
+  shadowPlay(false);
+}
+
+/* お手本を再生してから聞き取りへ。slow=trueで部分練習のゆっくり再生 */
+function shadowPlay(slow, prefix) {
+  if (!shadow) return;
+  stopRecognition();
+  speakPhase = "shadow";
+  setState("speaking");
+  renderShadowView("", shadow.lastMiss);
+  const rate = slow ? Math.max(0.5, (settings.rate) * 0.7) : settings.rate;
+  const texts = prefix ? [prefix, shadowTargetText()] : [shadowTargetText()];
+  speak(texts, () => { if (shadow) shadowListen(); }, rate);
+}
+
+function shadowListen() {
+  if (!shadow) return;
+  clearBuffers();
+  if (rec) rec.lang = "en-US"; /* 日本語モード中でもシャドーイングは英語認識 */
+  setState("shadowing");
+  renderShadowView("", shadow.lastMiss);
+  startRecognition();
+  /* 無反応ならお手本をもう一度 */
+  clearTimeout(silenceTimer);
+  silenceTimer = setTimeout(() => {
+    if (state === "shadowing" && shadow) shadowPlay(!!shadow.practice);
+  }, SHADOW_WAIT_MS);
+}
+
+function finalizeShadowAttempt() {
+  if (!shadow) return;
+  const attempt = currentText();
+  stopRecognition();
+  clearBuffers();
+  if (!attempt) { shadowListen(); return; }
+
+  const cmdWords = normWords(attempt).join(" ");
+  /* "next": シャドーイングを終えて次の録音へ */
+  if (cmdWords === "next" || cmdWords === "ネクスト" || cmdWords === "次") {
+    exitShadow();
+    beginListening();
+    return;
+  }
+  /* "stop": すべて終了 */
+  if (cmdWords === "stop" || cmdWords === "ストップ" || cmdWords === "終了") {
+    exitShadow();
+    if (handsFree) exitHandsFree(true); else setState("idle");
+    updateTranscriptIdle();
+    return;
+  }
+
+  const target = shadowTargetText();
+  const { tWords, miss } = diffTarget(target, attempt);
+  /* 合格基準（かなり寛容に）:
+   * - 似た音は soundsClose 側ですでに正解扱い
+   * - 冠詞・前置詞などの機能語の言い落としは減点しない
+   * - 内容語のミスを 3語以上の文で1語 / 8語以上で2語まで許容 */
+  const hardMissIdx = miss.filter(i => !FUNC_WORDS.has(tWords[i]));
+  const allow = tWords.length >= 8 ? 2 : tWords.length >= 3 ? 1 : 0;
+  const ok = hardMissIdx.length <= allow;
+
+  if (ok) {
+    shadow.lastMiss = [];
+    shadow.missAttempts = 0;
+    if (shadow.practice) {
+      /* 部分練習クリア → いまのチャンク（または全体）をもう一度 */
+      shadow.practice = null;
+      shadowPlay(false, "Nice!");
+    } else {
+      shadowAdvance("Good!");
+    }
+    return;
+  }
+
+  shadow.lastMiss = hardMissIdx.map(i => tWords[i]);
+  renderShadowView(attempt, shadow.lastMiss);
+  shadow.missAttempts++;
+
+  /* 同じ箇所で2回つまずいたら、頑張りを認めて先へ進む（詰まり防止） */
+  if (shadow.missAttempts >= 2) {
+    shadow.practice = null;
+    shadow.missAttempts = 0;
+    shadow.lastMiss = [];
+    shadowAdvance("Almost! Let's keep going.");
+    return;
+  }
+
+  /* 言えていない部分を切り出して、ゆっくり部分練習 */
+  const runStart = hardMissIdx[0];
+  let runEnd = runStart;
+  for (let k = 1; k < hardMissIdx.length && hardMissIdx[k] === hardMissIdx[k - 1] + 1; k++) runEnd = hardMissIdx[k];
+  const s = Math.max(0, runStart - 1);
+  const e = Math.min(tWords.length, runEnd + 2);
+  shadow.practice = tWords.slice(s, e).join(" ");
+  shadowPlay(true);
+}
+
+/* 現在のステージをクリアした（または見なした）ときの前進処理 */
+function shadowAdvance(prefix) {
+  if (!shadow) return;
+  if (shadow.chunks.length > 1 && shadow.stage < shadow.chunks.length - 1) {
+    shadow.stage++;                       /* 次のチャンクへ */
+    shadowPlay(false, prefix);
+  } else if (shadow.chunks.length > 1 && shadow.stage === shadow.chunks.length - 1) {
+    shadow.stage = shadow.chunks.length;  /* 全チャンク終了 → 全体通し */
+    shadowPlay(false, prefix + " Now all together.");
+  } else {
+    shadowPlay(false, prefix);            /* 全体（短文）→ もう一周 */
+  }
+}
+
+function exitShadow() {
+  shadow = null;
+  stopSpeaking();
+  stopRecognition();
+  clearBuffers();
+  if (rec) rec.lang = LANG_CODE[lang];
+}
+
+function updateTranscriptIdle() {
+  $("transcript").innerHTML = '<span class="placeholder">ここに認識された英語が表示されます</span>';
+}
+
+/* =====================================================================
+ * ハンズフリーモード + Wake Lock
+ * ===================================================================== */
+let wakeLock = null;
+
+async function acquireWakeLock() {
+  if (!("wakeLock" in navigator)) {
+    showError("この環境は画面ロック防止（Wake Lock API）に非対応です。ハンズフリー中は画面が自動消灯することがあります。");
+    return;
+  }
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (_) {
+    showError("画面ロック防止を有効にできませんでした。ハンズフリー中は画面が自動消灯することがあります。");
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && handsFree && !wakeLock) acquireWakeLock();
+});
+
+function enterHandsFree() {
+  handsFree = true;
+  $("handsfree-toggle").checked = true;
+  acquireWakeLock();
+  beginListening();
+}
+
+function exitHandsFree(sayBye) {
+  handsFree = false;
+  $("handsfree-toggle").checked = false;
+  releaseWakeLock();
+  if (shadow) exitShadow();
+  stopRecognition();
+  stopSpeaking();
+  clearBuffers();
+  updateTranscript();
+  setState("idle");
+  if (sayBye) $("status-sub").textContent = "ハンズフリーを終了しました";
+}
+
+$("handsfree-toggle").addEventListener("change", (e) => {
+  primeTTS(); /* タップ操作の中で読み上げエンジンのロックを解除 */
+  if (e.target.checked) enterHandsFree();
+  else exitHandsFree(false);
+});
+
+/* =====================================================================
+ * 終了ボタン: どの場面でも一発で待機状態に戻す
+ * ===================================================================== */
+function stopEverything() {
+  submitSession++;          /* 進行中の添削結果を破棄 */
+  if (shadow) exitShadow();
+  if (handsFree) {
+    exitHandsFree(true);    /* 内部で認識・読み上げ停止＆idle化 */
+    return;
+  }
+  stopRecognition();
+  stopSpeaking();
+  clearBuffers();
+  setState("idle");
+  updateTranscriptIdle();
+  $("status-sub").textContent = "練習を終了しました";
+}
+$("stop-btn").addEventListener("click", () => {
+  primeTTS();
+  stopEverything();
+});
+
+/* =====================================================================
+ * ⏭次へボタン: 添削待ち・読み上げ・シャドーイングのどこからでも
+ * すぐに次の英作の録音へ進む
+ * ===================================================================== */
+function nextNow() {
+  submitSession++;          /* 添削待ち中なら結果を破棄 */
+  if (shadow) exitShadow();
+  stopSpeaking();
+  stopRecognition();
+  clearBuffers();
+  beginListening();
+}
+$("next-btn").addEventListener("click", () => {
+  if ($("next-btn").disabled) return;
+  primeTTS();
+  nextNow();
+});
+
+/* =====================================================================
+ * 入力モード切り替え（英語で話す / 日本語でヘルプ）
+ * ===================================================================== */
+[...$("lang-seg").children].forEach(btn => {
+  btn.addEventListener("click", () => {
+    if (btn.dataset.lang === lang) return;
+    const wasTalk = lang === "talk";
+    lang = btn.dataset.lang;
+    [...$("lang-seg").children].forEach(b => b.classList.toggle("on", b === btn));
+    if (wasTalk && lang !== "talk") resetConversation(); /* 会話モードを離れたら会話をリセット */
+    if (shadow) { beginListening(); return; } /* シャドーイング中の切替は新モードで録音へ */
+    if (rec) rec.lang = LANG_CODE[lang];
+    if (state === "listening") {
+      if (lang === "talk") { beginListening(); return; } /* 会話モードへ切替→質問から */
+      /* 聞き取り中なら新しい言語で聞き直す */
+      stopRecognition();
+      clearBuffers();
+      updateTranscript();
+      startRecognition();
+    }
+    if (lang !== "talk") $("question-card").style.display = "none";
+    setState(state); /* 案内文を更新 */
+  });
+});
+
+/* =====================================================================
+ * マイクボタン（手動モード）
+ * ===================================================================== */
+$("mic-btn").addEventListener("click", () => {
+  if (!SR) return;
+  primeTTS(); /* タップ操作の中で読み上げエンジンのロックを解除 */
+  if (shadow) {
+    /* シャドーイング中のタップ = "next" と同じ（次の録音へ） */
+    beginListening();
+    return;
+  }
+  if (state === "idle") {
+    beginListening();
+  } else if (state === "listening") {
+    finalizeUtterance();
+  } else if (state === "speaking") {
+    stopSpeaking();
+    if (lang === "talk" && speakPhase === "question") {
+      /* 質問の読み上げ中にタップ → すぐ聞き取りへ */
+      setState("listening");
+      startRecognition();
+    } else {
+      /* 評価・訳の読み上げ中にタップ → スキップして次の英作へ（"next"と同じ） */
+      beginListening();
+    }
+  }
+  /* processing中は無効化済み */
+});
+
+/* =====================================================================
+ * 履歴
+ * ===================================================================== */
+function saveToHistory(spoken, fb, mode, question) {
+  const h = store.getHistory();
+  h.unshift({
+    id: Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+    ts: Date.now(),
+    mode: mode || "en",
+    question: question || "",
+    spoken,
+    meaning_ja: fb.meaning_ja || "",
+    praise: fb.praise || "",
+    correct: !!fb.correct,
+    corrected: fb.corrected || "",
+    natural: fb.natural || [],
+    explanation: fb.explanation || "",
+    level_up: fb.level_up || "",
+  });
+  if (h.length > 500) h.length = 500;
+  store.setHistory(h);
+}
+
+function fmtDate(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderHistory() {
+  const list = $("history-list");
+  const h = store.getHistory();
+  list.innerHTML = "";
+  if (!h.length) {
+    list.innerHTML = '<div class="hist-empty">まだ練習の記録がありません。<br>「練習」タブで話してみましょう。</div>';
+    return;
+  }
+  h.forEach(item => {
+    const el = document.createElement("div");
+    el.className = "hist-item";
+
+    const head = document.createElement("div");
+    head.className = "hist-date";
+    const dateSpan = document.createElement("span");
+    dateSpan.textContent = fmtDate(item.ts)
+      + (item.mode === "ja" ? "　💡日本語→英語" : item.mode === "talk" ? "　🗨️会話" : "")
+      + (item.mode !== "ja" ? (item.correct ? "　✓" : "　✗") : "")
+      + (item.praise ? "　" + item.praise : "");
+    const del = document.createElement("button");
+    del.className = "hist-del";
+    del.textContent = "削除";
+    del.onclick = () => {
+      store.setHistory(store.getHistory().filter(x => x.id !== item.id));
+      renderHistory();
+    };
+    head.append(dateSpan, del);
+    el.append(head);
+
+    if (item.question) {
+      const q = document.createElement("div");
+      q.className = "hist-meaning";
+      q.textContent = "Q: " + item.question;
+      el.append(q);
+    }
+    const spoken = document.createElement("div");
+    spoken.className = "hist-spoken";
+    spoken.textContent = item.spoken;
+    el.append(spoken);
+
+    if (item.meaning_ja) {
+      const m = document.createElement("div");
+      m.className = "hist-meaning";
+      m.textContent = "→ " + item.meaning_ja;
+      el.append(m);
+    }
+
+    if (item.mode !== "ja" && !item.correct && item.corrected) {
+      const l = document.createElement("div");
+      l.className = "fb-label"; l.textContent = "修正";
+      el.append(l, enRow(item.corrected));
+    }
+    (item.natural || []).forEach((n, i) => {
+      if (i === 0) {
+        const l = document.createElement("div");
+        l.className = "fb-label";
+        l.textContent = item.mode === "ja" ? "英語表現" : "自然な表現";
+        el.append(l);
+      }
+      el.append(enRow(n));
+    });
+
+    /* 解説・レベルアップ表現（タップで開閉） */
+    if (item.explanation || item.level_up) {
+      const det = document.createElement("details");
+      det.className = "hist-exp";
+      const sum = document.createElement("summary");
+      sum.textContent = "解説を読む";
+      det.append(sum);
+      if (item.explanation) {
+        const p = document.createElement("div");
+        p.className = "fb-ja";
+        p.textContent = item.explanation;
+        det.append(p);
+      }
+      if (item.level_up) {
+        const l = document.createElement("div");
+        l.className = "fb-label"; l.textContent = "レベルアップ表現";
+        det.append(l, enRow(item.level_up));
+      }
+      el.append(det);
+    }
+    list.append(el);
+  });
+}
+
+/* =====================================================================
+ * 設定
+ * ===================================================================== */
+function flashSaved() {
+  const f = $("save-flash");
+  f.classList.add("show");
+  setTimeout(() => f.classList.remove("show"), 1500);
+}
+
+$("api-key").value = store.getKey();
+$("api-key").addEventListener("change", (e) => {
+  store.setKey(e.target.value.trim());
+  flashSaved();
+  hideError();
+});
+$("key-toggle").addEventListener("click", () => {
+  const inp = $("api-key");
+  const show = inp.type === "password";
+  inp.type = show ? "text" : "password";
+  $("key-toggle").textContent = show ? "隠す" : "表示";
+});
+
+/* 読み上げテスト（トラブル切り分け用） */
+$("tts-test").addEventListener("click", () => {
+  const note = $("tts-note");
+  const n = ("speechSynthesis" in window) ? speechSynthesis.getVoices().length : 0;
+  if (!("speechSynthesis" in window)) {
+    note.textContent = "⚠️ このブラウザは読み上げ（speechSynthesis）に対応していません。Safariで開いてください。";
+    return;
+  }
+  note.textContent = `再生中…（利用可能な音声: ${n}種類）。聞こえない場合: ① マナーモード（消音スイッチ）をオフ ② 音量を上げる ③ AirPodsの接続先を確認 ④ アプリを完全に閉じて開き直す`;
+  speak([
+    { text: "Hello! This is a test.", lang: "en-US" },
+    { text: "読み上げは正常です。", lang: "ja-JP", rate: 1.0 },
+  ], () => {
+    note.textContent = "テスト再生が完了しました。聞こえていれば読み上げ機能は正常です。聞こえなかった場合: ① マナーモード（消音スイッチ）をオフ ② 音量を上げる ③ AirPodsの接続先を確認 ④ アプリを完全に閉じて開き直す";
+  });
+});
+
+function initSeg(segId, attr, current, apply) {
+  const seg = $(segId);
+  [...seg.children].forEach(btn => {
+    btn.classList.toggle("on", btn.dataset[attr] === String(current));
+    btn.addEventListener("click", () => {
+      [...seg.children].forEach(b => b.classList.remove("on"));
+      btn.classList.add("on");
+      apply(btn.dataset[attr]);
+      store.setSettings(settings);
+      flashSaved();
+    });
+  });
+}
+initSeg("rate-seg", "rate", settings.rate.toFixed(1), v => { settings.rate = parseFloat(v); });
+initSeg("detail-seg", "detail", settings.detail, v => { settings.detail = v; });
+initSeg("model-seg", "model", settings.model, v => { settings.model = v; });
+initSeg("shadow-seg", "shadow", settings.shadow, v => { settings.shadow = v; });
+
+/* =====================================================================
+ * タブ切り替え
+ * ===================================================================== */
+function switchTab(name) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + name));
+  if (name === "history") renderHistory();
+}
+document.querySelectorAll(".tab").forEach(t => {
+  t.addEventListener("click", () => switchTab(t.dataset.tab));
+});
+
+/* =====================================================================
+ * Service Worker
+ * ===================================================================== */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });
+}
+
+/* 初期表示 */
+setState("idle");
+if (!store.getKey()) {
+  showError("はじめに「設定」タブで Anthropic APIキーを入力してください。", true);
+}
+</script>
+</body>
+</html>
