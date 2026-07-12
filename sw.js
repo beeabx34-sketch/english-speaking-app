@@ -1,7 +1,7 @@
 /* 瞬間英作文トレーナー Service Worker
  * アプリ本体をキャッシュし、オフラインでも起動・履歴閲覧を可能にする。
  * Claude API（api.anthropic.com）へのリクエストは一切キャッシュしない。 */
-const CACHE = "ess-v14";
+const CACHE = "ess-v15";
 const ASSETS = [
   "./",
   "./index.html",

@@ -157,6 +157,17 @@
   #stop-btn:active { transform: scale(.92); }
   #stop-btn:disabled { opacity: .35; box-shadow: none; cursor: default; }
   #stop-btn .stop-label { font-size: 10px; font-weight: 700; }
+  #next-btn {
+    width: 58px; height: 58px; border-radius: 50%;
+    border: 1.5px solid #a9c6bd; background: var(--card); color: var(--accent);
+    font-size: 19px; line-height: 1.1; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(47,107,95,.2);
+    transition: transform .1s, opacity .2s;
+  }
+  #next-btn:active { transform: scale(.92); }
+  #next-btn:disabled { opacity: .35; box-shadow: none; cursor: default; }
+  #next-btn .stop-label { font-size: 10px; font-weight: 700; }
   #mic-btn {
     width: 92px; height: 92px; border-radius: 50%; border: none;
     background: var(--accent); color: #fff; font-size: 40px; cursor: pointer;
@@ -288,7 +299,9 @@
           </span>
         </label>
         <div class="mic-row">
-          <span class="side-slot"></span>
+          <span class="side-slot">
+            <button id="next-btn" aria-label="次へ" disabled>⏭<span class="stop-label">次へ</span></button>
+          </span>
           <button id="mic-btn" aria-label="マイク">🎤</button>
           <span class="side-slot">
             <button id="stop-btn" aria-label="終了" disabled>⏹<span class="stop-label">終了</span></button>
@@ -320,7 +333,7 @@
           <button data-shadow="on" class="on">する</button>
           <button data-shadow="off">しない</button>
         </div>
-        <div class="set-note">添削の読み上げ後、お手本フレーズを繰り返し発音する練習に入ります。うまく言えなかった部分だけゆっくり再生→部分練習→全体に戻る、を繰り返します。“next”と言うと次の文の録音へ。</div>
+        <div class="set-note">添削のあと、お手本フレーズを発音する練習に入ります。判定は寛容です（似た発音・a や the などの言い落としはOK。2回つまずいたら自動で先へ進みます）。“next”と言うか、マイク横の⏭ボタンでいつでも次の文の録音へ進めます。</div>
       </div>
 
       <div class="set-group">
@@ -353,7 +366,7 @@
         <div class="set-title">音声コマンド一覧</div>
         <table class="cmd-table">
           <tr><td class="cmd">“reset”</td><td>言い直し。聞き取り中に文末に付けて言うと、それまでの内容を破棄して聞き取りをやり直す<br><span class="cmd-sub">（“scratch that”／日本語ヘルプ中は「やり直し」「リセット」でも可）</span></td></tr>
-          <tr><td class="cmd">“next”</td><td>シャドーイングを終えて、次の文の聞き取りへ進む<br><span class="cmd-sub">（マイクボタンのタップでも同じ）</span></td></tr>
+          <tr><td class="cmd">“next”</td><td>シャドーイングを終えて、次の文の聞き取りへ進む<br><span class="cmd-sub">（マイクボタンのタップ、または⏭ボタンでも同じ。⏭は添削待ち・読み上げ中にも使えます）</span></td></tr>
           <tr><td class="cmd">“stop”</td><td>練習を終了する。聞き取り中・シャドーイング中いつでも使え、ハンズフリーも解除される<br><span class="cmd-sub">（“finish”／「ストップ」「終了」でも可）</span></td></tr>
         </table>
       </div>
@@ -463,7 +476,7 @@ const STATUS = {
   listening:  { icon: "🟢", label: "聞き取り中…",     sub: "タップで確定・間違えたら“reset”でやり直し", pulse: true },
   processing: { icon: "⏳", label: "添削中…",         sub: "Claudeが英文をチェックしています", pulse: true },
   speaking:   { icon: "🔊", label: "読み上げ中…",     sub: "お手本を聞きましょう", pulse: true },
-  shadowing:  { icon: "🔁", label: "シャドーイング",   sub: "お手本に続けて発音しましょう（“next”で次へ）", pulse: true },
+  shadowing:  { icon: "🔁", label: "シャドーイング",   sub: "お手本に続けて発音（“next”か⏭ボタンで次へ）", pulse: true },
 };
 
 function setState(next) {
@@ -484,12 +497,16 @@ function setState(next) {
   mic.classList.toggle("listening", next === "listening");
   mic.disabled = (next === "processing");
   $("stop-btn").disabled = (next === "idle" && !handsFree);
+  /* ⏭次へ: 添削待ち・フィードバック読み上げ・シャドーイング中に使える
+   * （会話モードの質問読み上げ中は対象外） */
+  $("next-btn").disabled = !(next === "shadowing" || next === "processing" ||
+                             (next === "speaking" && speakPhase !== "question"));
   mic.textContent = next === "listening" ? "⏹" : next === "speaking" ? "🔇" : next === "shadowing" ? "⏭" : "🎤";
   $("mic-hint").textContent =
     next === "listening" ? (handsFree ? "話し終えると自動で添削されます" : "もう一度タップで確定") :
     next === "shadowing" ? "“next”と言うかタップで次の録音へ" :
-    next === "speaking" ? "タップで読み上げを停止" :
-    next === "processing" ? "しばらくお待ちください…" :
+    next === "speaking" ? "タップで読み上げを停止（⏭で次の英作へ）" :
+    next === "processing" ? "お待ちください…（⏭で飛ばして次の英作へ）" :
     handsFree ? "ハンズフリー中：自動で聞き取りが始まります" : "タップで録音開始 → もう一度タップで確定";
 }
 
@@ -1191,6 +1208,16 @@ function soundsClose(a, b) {
   return d <= (Math.min(a.length, b.length) >= 5 ? 2 : 1);
 }
 
+/* 言えなくても減点しない機能語（冠詞・前置詞・be動詞など。
+ * 発音練習の主目的は内容語なので、these の言い落としで足止めしない） */
+const FUNC_WORDS = new Set([
+  "a","an","the","to","of","in","on","at","for","and","or","but",
+  "is","am","are","was","were","be","been","being",
+  "it","that","this","these","those","there",
+  "my","your","his","her","its","our","their","some","any",
+  "do","does","did","will","would","can","could","have","has","had","not","so",
+]);
+
 /* お手本(target)と発音(attempt)をLCSで照合し、言えていないお手本側の単語indexを返す */
 function diffTarget(target, attempt) {
   const t = normWords(target), a = normWords(attempt);
@@ -1309,10 +1336,13 @@ function finalizeShadowAttempt() {
 
   const target = shadowTargetText();
   const { tWords, miss } = diffTarget(target, attempt);
-  /* 合格基準（発音判定は認識ベースの近似なので、詰まらないよう寛容に）:
-   * 3語以下=完全一致 / 4〜8語=1語まで / 9語以上=2語までのミスを許容 */
-  const allow = tWords.length >= 9 ? 2 : tWords.length >= 4 ? 1 : 0;
-  const ok = miss.length <= allow;
+  /* 合格基準（かなり寛容に）:
+   * - 似た音は soundsClose 側ですでに正解扱い
+   * - 冠詞・前置詞などの機能語の言い落としは減点しない
+   * - 内容語のミスを 3語以上の文で1語 / 8語以上で2語まで許容 */
+  const hardMissIdx = miss.filter(i => !FUNC_WORDS.has(tWords[i]));
+  const allow = tWords.length >= 8 ? 2 : tWords.length >= 3 ? 1 : 0;
+  const ok = hardMissIdx.length <= allow;
 
   if (ok) {
     shadow.lastMiss = [];
@@ -1327,12 +1357,12 @@ function finalizeShadowAttempt() {
     return;
   }
 
-  shadow.lastMiss = miss.map(i => tWords[i]);
+  shadow.lastMiss = hardMissIdx.map(i => tWords[i]);
   renderShadowView(attempt, shadow.lastMiss);
   shadow.missAttempts++;
 
-  /* 同じ箇所で3回つまずいたら、頑張りを認めて先へ進む（詰まり防止） */
-  if (shadow.missAttempts >= 3) {
+  /* 同じ箇所で2回つまずいたら、頑張りを認めて先へ進む（詰まり防止） */
+  if (shadow.missAttempts >= 2) {
     shadow.practice = null;
     shadow.missAttempts = 0;
     shadow.lastMiss = [];
@@ -1341,9 +1371,9 @@ function finalizeShadowAttempt() {
   }
 
   /* 言えていない部分を切り出して、ゆっくり部分練習 */
-  const runStart = miss[0];
+  const runStart = hardMissIdx[0];
   let runEnd = runStart;
-  for (let k = 1; k < miss.length && miss[k] === miss[k - 1] + 1; k++) runEnd = miss[k];
+  for (let k = 1; k < hardMissIdx.length && hardMissIdx[k] === hardMissIdx[k - 1] + 1; k++) runEnd = hardMissIdx[k];
   const s = Math.max(0, runStart - 1);
   const e = Math.min(tWords.length, runEnd + 2);
   shadow.practice = tWords.slice(s, e).join(" ");
@@ -1446,6 +1476,24 @@ function stopEverything() {
 $("stop-btn").addEventListener("click", () => {
   primeTTS();
   stopEverything();
+});
+
+/* =====================================================================
+ * ⏭次へボタン: 添削待ち・読み上げ・シャドーイングのどこからでも
+ * すぐに次の英作の録音へ進む
+ * ===================================================================== */
+function nextNow() {
+  submitSession++;          /* 添削待ち中なら結果を破棄 */
+  if (shadow) exitShadow();
+  stopSpeaking();
+  stopRecognition();
+  clearBuffers();
+  beginListening();
+}
+$("next-btn").addEventListener("click", () => {
+  if ($("next-btn").disabled) return;
+  primeTTS();
+  nextNow();
 });
 
 /* =====================================================================
