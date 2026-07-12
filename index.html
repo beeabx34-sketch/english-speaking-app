@@ -403,6 +403,8 @@ let settings = store.getSettings();
 /* idle | listening | processing | speaking */
 let state = "idle";
 let handsFree = false;
+/* speaking中の内訳: "question"（会話モードの質問）| "feedback" | "shadow" */
+let speakPhase = null;
 /* 入力モード: "en"=英語で話して添削 / "ja"=日本語で言いたいことを話して英訳 / "talk"=会話モード */
 let lang = "en";
 const LANG_CODE = { en: "en-US", ja: "ja-JP", talk: "en-US" };
@@ -630,6 +632,7 @@ function beginListening() {
   if (lang === "talk") {
     ensureQuestion();
     renderQuestionCard();
+    speakPhase = "question";
     setState("speaking");
     speak([currentQuestion.q], () => {
       if (state === "speaking") { setState("listening"); startRecognition(); }
@@ -696,7 +699,7 @@ function systemPrompt(mode) {
 {
   "correct": true,
   "corrected": "",
-  "natural": ["最も自然で口語的な英語表現。1〜2案の配列。学習者がそのまま声に出して使える完全な文にすること"],
+  "natural": ["最も自然で口語的な英語表現を1案だけ。学習者がそのまま声に出して使える完全な文にすること"],
   "explanation": "日本語での解説。キーとなる単語・フレーズの意味と使い方。${detail}",
   "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（余裕があれば。なければ空文字）"
 }
@@ -716,7 +719,7 @@ function systemPrompt(mode) {
   "meaning_ja": "学習者の回答（聞き取られた英文）をそのまま忠実に日本語訳した1文",
   "correct": true または false（文法的に通じるか）,
   "corrected": "誤りがあれば修正した英文。なければ元の文のまま",
-  "natural": ["ネイティブならこう答える、というより自然な表現。1〜2案の配列"],
+  "natural": ["ネイティブならこう答える、というより自然な表現を1案だけ"],
   "explanation": "日本語での解説。${detail}",
   "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（なければ空文字）",
   "next_question": "会話を続ける次の英語の質問。回答の内容に自然につながるフォローアップを優先し、同じ話題が続いたら新しい身近な話題へ。短くシンプルな1文（中学英語レベル）",
@@ -737,7 +740,7 @@ function systemPrompt(mode) {
   "meaning_ja": "与えられた英文（＝音声認識が聞き取った文）をそのまま忠実に日本語訳した1文。学習者が『自分の文がどう認識・解釈されたか』を確認するためのものなので、意図を推測して直さず聞き取られた通りに訳すこと",
   "correct": true または false（文法的に通じるかどうか）,
   "corrected": "誤りがあれば修正した英文。誤りがなければ元の文をそのまま",
-  "natural": ["ネイティブならこう言う、というより自然な表現。1〜2案の配列"],
+  "natural": ["ネイティブならこう言う、というより自然な表現を1案だけ"],
   "explanation": "日本語での解説。なぜその表現が良いのか。${detail}",
   "level_up": "同じ内容を一段上の語彙・構文で言う例文1つ（余裕があれば。なければ空文字）"
 }
@@ -1058,16 +1061,20 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-/* フィードバック読み上げ：認識を必ず停止してから話し、終了後に再開 */
+/* フィードバック読み上げ：認識を必ず停止してから話し、終了後に再開。
+ * テンポ優先で「評価＋日本語訳」だけ読み、お手本はシャドーイング側で読む
+ * （シャドーイングOFF時のみここでお手本を1回読む） */
 function speakFeedback(fb) {
   stopRecognition();  /* 自分の声（TTS）の誤認識防止 */
+  speakPhase = "feedback";
   const texts = [];
   if (fb.praise) texts.push(fb.praise);
   /* 聞き取った文の日本語訳（認識ズレの確認用）を日本語音声で */
   if (fb.meaning_ja) texts.push({ text: fb.meaning_ja, lang: "ja-JP", rate: 1.0 });
-  if (!fb.correct && fb.corrected) texts.push(fb.corrected);
-  fb.natural.forEach(n => texts.push(n));
-  if (!texts.length && fb.corrected) texts.push(fb.corrected);
+
+  const model = (fb.natural && fb.natural[0]) || fb.corrected || "";
+  const willShadow = settings.shadow === "on" && model && SR;
+  if (!willShadow && model) texts.push(model);
 
   setState("speaking");
   speak(texts, () => {
@@ -1146,6 +1153,44 @@ function normWords(s) {
   return s.split(" ").filter(Boolean).flatMap(w => (CONTRACTIONS[w] || w).split(" "));
 }
 
+/* ---- 発音判定の寛容化 ----
+ * 完全一致ではなく「似た音なら正解」とする。
+ * ・同音異義語（to/two, by/buy など）は同一視
+ * ・1〜2文字違い（stopped/stoped, weather/whether など）も許容 */
+const HOMOPHONE = {};
+[
+  ["to","too","two"],["for","four"],["by","buy","bye"],["there","their"],
+  ["right","write"],["one","won"],["see","sea"],["know","no"],["hear","here"],
+  ["our","hour"],["ate","eight"],["meet","meat"],["week","weak"],["wait","weight"],
+  ["would","wood"],["son","sun"],["piece","peace"],["read","red"],["new","knew"],
+  ["weather","whether"],["where","wear"],["your","you're"],["its","it's"],
+].forEach((g, i) => g.forEach(w => { HOMOPHONE[w] = "h" + i; }));
+
+function editDistance(a, b) {
+  const n = a.length, m = b.length;
+  if (Math.abs(n - m) > 2) return 99;
+  const dp = new Array(m + 1);
+  for (let j = 0; j <= m; j++) dp[j] = j;
+  for (let i = 1; i <= n; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= m; j++) {
+      const tmp = dp[j];
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[m];
+}
+
+function soundsClose(a, b) {
+  if (a === b) return true;
+  if (HOMOPHONE[a] && HOMOPHONE[a] === HOMOPHONE[b]) return true;
+  if (a.length < 3 || b.length < 3) return false;
+  const d = editDistance(a, b);
+  return d <= (Math.min(a.length, b.length) >= 5 ? 2 : 1);
+}
+
 /* お手本(target)と発音(attempt)をLCSで照合し、言えていないお手本側の単語indexを返す */
 function diffTarget(target, attempt) {
   const t = normWords(target), a = normWords(attempt);
@@ -1153,11 +1198,11 @@ function diffTarget(target, attempt) {
   const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--)
     for (let j = m - 1; j >= 0; j--)
-      dp[i][j] = t[i] === a[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      dp[i][j] = soundsClose(t[i], a[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
   const miss = [];
   let i = 0, j = 0;
   while (i < n && j < m) {
-    if (t[i] === a[j]) { i++; j++; }
+    if (soundsClose(t[i], a[j])) { i++; j++; }
     else if (dp[i + 1][j] >= dp[i][j + 1]) { miss.push(i); i++; }
     else j++;
   }
@@ -1218,6 +1263,7 @@ function maybeStartShadowing(fb) {
 function shadowPlay(slow, prefix) {
   if (!shadow) return;
   stopRecognition();
+  speakPhase = "shadow";
   setState("speaking");
   renderShadowView("", shadow.lastMiss);
   const rate = slow ? Math.max(0.5, (settings.rate) * 0.7) : settings.rate;
@@ -1444,12 +1490,13 @@ $("mic-btn").addEventListener("click", () => {
     finalizeUtterance();
   } else if (state === "speaking") {
     stopSpeaking();
-    if (lang === "talk") {
-      /* 会話モードで質問の読み上げ中にタップ → すぐ聞き取りへ */
+    if (lang === "talk" && speakPhase === "question") {
+      /* 質問の読み上げ中にタップ → すぐ聞き取りへ */
       setState("listening");
       startRecognition();
     } else {
-      afterFeedbackDone();
+      /* 評価・訳の読み上げ中にタップ → スキップして次の英作へ（"next"と同じ） */
+      beginListening();
     }
   }
   /* processing中は無効化済み */
